@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="2600" viewBox="0 0 1440 2600">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#91A7FF"/>
+      <stop offset="1" stop-color="#586CD6"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D7E0FF" stop-opacity=".94"/>
+      <stop offset="1" stop-color="#8EA1E8" stop-opacity=".38"/>
+    </linearGradient>
+    <clipPath id="heroClip"><rect x="68" y="242" width="1304" height="710" rx="4"/></clipPath>
+    <clipPath id="workA"><rect x="68" y="1260" width="760" height="500" rx="3"/></clipPath>
+    <clipPath id="workB"><rect x="862" y="1260" width="510" height="500" rx="3"/></clipPath>
+  </defs>
+
+  <rect width="1440" height="2600" fill="#F2F1EC"/>
+
+  <!-- Navigation -->
+  <rect width="1440" height="104" fill="#F2F1EC"/>
+  <line x1="68" y1="103.5" x2="1372" y2="103.5" stroke="#18242B" stroke-opacity=".2"/>
+  <text x="68" y="66" fill="#15232C" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" letter-spacing="-1">NORTHLINE®</text>
+  <text x="602" y="64" fill="#334047" font-family="Arial, Helvetica, sans-serif" font-size="13" letter-spacing="1.8">WORK</text>
+  <text x="715" y="64" fill="#334047" font-family="Arial, Helvetica, sans-serif" font-size="13" letter-spacing="1.8">STUDIO</text>
+  <text x="840" y="64" fill="#334047" font-family="Arial, Helvetica, sans-serif" font-size="13" letter-spacing="1.8">JOURNAL</text>
+  <rect x="1214" y="30" width="158" height="43" rx="22" fill="#18262F"/>
+  <text x="1293" y="57" text-anchor="middle" fill="#F2F1EC" font-family="Arial, Helvetica, sans-serif" font-size="12" letter-spacing="1.4">START A PROJECT</text>
+
+  <!-- Hero thesis -->
+  <text x="68" y="174" fill="#657079" font-family="Courier New, monospace" font-size="12" letter-spacing="2.2">INDEPENDENT DESIGN PRACTICE · ZÜRICH / WORLDWIDE</text>
+  <text x="1372" y="174" text-anchor="end" fill="#657079" font-family="Courier New, monospace" font-size="12">2026 — 08</text>
+
+  <g clip-path="url(#heroClip)">
+    <rect x="68" y="242" width="1304" height="710" fill="url(#sky)"/>
+    <circle cx="1080" cy="350" r="310" fill="#C9D3FF" fill-opacity=".42"/>
+    <circle cx="1160" cy="360" r="182" fill="#F4F04E"/>
+    <path d="M-40 976 405 395l490 650Z" fill="#1B2933"/>
+    <path d="m198 988 377-512 320 569Z" fill="#263A47"/>
+    <rect x="793" y="450" width="326" height="610" fill="url(#glass)" transform="rotate(12 793 450)"/>
+    <rect x="873" y="415" width="46" height="650" fill="#E9EDFF" fill-opacity=".44" transform="rotate(12 873 415)"/>
+    <path d="M1112 940c-47-137-61-253-43-348 20-102 74-171 162-207" fill="none" stroke="#F2F1EC" stroke-width="6" stroke-opacity=".75"/>
+    <circle cx="1250" cy="370" r="10" fill="#F2F1EC"/>
+  </g>
+  <rect x="68" y="242" width="1304" height="710" rx="4" fill="none" stroke="#172630" stroke-opacity=".25"/>
+
+  <text x="97" y="330" fill="#F7F6EF" font-family="Arial, Helvetica, sans-serif" font-size="108" font-weight="700" letter-spacing="-6">WE DESIGN</text>
+  <text x="97" y="431" fill="#F7F6EF" font-family="Arial, Helvetica, sans-serif" font-size="108" font-weight="700" letter-spacing="-6">PLACES FOR</text>
+  <text x="97" y="532" fill="#F4F04E" font-family="Arial, Helvetica, sans-serif" font-size="108" font-weight="700" letter-spacing="-6">WHAT'S NEXT.</text>
+
+  <g transform="translate(97 858)">
+    <circle cx="22" cy="22" r="22" fill="#F2F1EC"/>
+    <path d="M14 22h15m0 0-6-6m6 6-6 6" fill="none" stroke="#172630" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="60" y="27" fill="#F7F6EF" font-family="Arial, Helvetica, sans-serif" font-size="13" letter-spacing="1.4">EXPLORE THE PRACTICE</text>
+  </g>
+
+  <!-- Intro -->
+  <text x="68" y="1016" fill="#657079" font-family="Courier New, monospace" font-size="12" letter-spacing="2">01 / POINT OF VIEW</text>
+  <text x="468" y="1028" fill="#18262F" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="500" letter-spacing="-1.7">
+    <tspan x="468" dy="0">Built environments should do more</tspan>
+    <tspan x="468" dy="47">than occupy space. They should give</tspan>
+    <tspan x="468" dy="47">something back—to people, to place,</tspan>
+    <tspan x="468" dy="47">and to the years ahead.</tspan>
+  </text>
+  <!-- Selected work -->
+  <line x1="68" y1="1208" x2="1372" y2="1208" stroke="#18242B" stroke-opacity=".2"/>
+  <text x="68" y="1242" fill="#657079" font-family="Courier New, monospace" font-size="12" letter-spacing="2">02 / SELECTED WORK</text>
+  <text x="1372" y="1242" text-anchor="end" fill="#657079" font-family="Courier New, monospace" font-size="12">VIEW ALL 14 ↗</text>
+
+  <g clip-path="url(#workA)">
+    <rect x="68" y="1260" width="760" height="500" fill="#B9B3A5"/>
+    <rect x="180" y="1180" width="510" height="760" fill="#E6E2D9" transform="rotate(-8 180 1180)"/>
+    <rect x="245" y="1290" width="86" height="380" fill="#777B78"/>
+    <rect x="362" y="1290" width="86" height="380" fill="#98A19F"/>
+    <rect x="479" y="1290" width="86" height="380" fill="#737E81"/>
+    <path d="M68 1610c180-95 348-88 505 20 87 61 170 72 255 34v96H68Z" fill="#6A796A"/>
+    <circle cx="130" cy="1355" r="71" fill="#CFD98E" fill-opacity=".82"/>
+  </g>
+  <text x="68" y="1800" fill="#18262F" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600">RHEINHAUS COMMUNITY CAMPUS</text>
+  <text x="68" y="1831" fill="#657079" font-family="Courier New, monospace" font-size="11" letter-spacing="1">BASEL · ARCHITECTURE + IDENTITY · 2025</text>
+
+  <g clip-path="url(#workB)">
+    <rect x="862" y="1260" width="510" height="500" fill="#1E303A"/>
+    <circle cx="1122" cy="1470" r="215" fill="#F0EA57"/>
+    <rect x="944" y="1330" width="354" height="500" rx="180" fill="#7187DB"/>
+    <rect x="1027" y="1395" width="188" height="372" rx="94" fill="#132731"/>
+    <path d="M862 1690 1372 1460v300H862Z" fill="#0D1E27" fill-opacity=".58"/>
+  </g>
+  <text x="862" y="1800" fill="#18262F" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600">LUMA NIGHT SCHOOL</text>
+  <text x="862" y="1831" fill="#657079" font-family="Courier New, monospace" font-size="11" letter-spacing="1">LAUSANNE · INTERIORS · 2026</text>
+
+  <!-- Proof point banner -->
+  <rect x="68" y="1918" width="1304" height="338" rx="3" fill="#192A34"/>
+  <text x="104" y="1971" fill="#9DA8AE" font-family="Courier New, monospace" font-size="12" letter-spacing="2">A PRACTICE MEASURED IN LONGER HORIZONS</text>
+  <text x="104" y="2097" fill="#F2F1EC" font-family="Arial, Helvetica, sans-serif" font-size="112" font-weight="700" letter-spacing="-6">73%</text>
+  <text x="104" y="2150" fill="#C3CBD0" font-family="Arial, Helvetica, sans-serif" font-size="17">
+    <tspan x="104" dy="0">of every project budget is directed to</tspan>
+    <tspan x="104" dy="25">local material and fabrication partners.</tspan>
+  </text>
+  <line x1="600" y1="1960" x2="600" y2="2216" stroke="#F2F1EC" stroke-opacity=".16"/>
+  <text x="654" y="2077" fill="#F2F1EC" font-family="Arial, Helvetica, sans-serif" font-size="36" font-weight="500" letter-spacing="-1">
+    <tspan x="654" dy="0">The best sustainability strategy</tspan>
+    <tspan x="654" dy="47">is a building people still want</tspan>
+    <tspan x="654" dy="47">to use in fifty years.</tspan>
+  </text>
+  <circle cx="1290" cy="2140" r="40" fill="#F0EA57"/>
+  <path d="M1277 2140h26m0 0-10-10m10 10-10 10" fill="none" stroke="#18262F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Footer -->
+  <text x="68" y="2370" fill="#657079" font-family="Courier New, monospace" font-size="12" letter-spacing="2">03 / START A CONVERSATION</text>
+  <text x="68" y="2478" fill="#18262F" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="600" letter-spacing="-4">Have a place in mind?</text>
+  <text x="68" y="2560" fill="#18262F" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="600" letter-spacing="-4">studio@northline.example ↗</text>
+  <line x1="68" y1="2587" x2="1372" y2="2587" stroke="#18242B" stroke-opacity=".2"/>
+  <text x="68" y="2598" fill="#657079" font-family="Courier New, monospace" font-size="11">NORTHLINE STUDIO · DEMO COMPOSITION FOR CUEPORT</text>
+</svg>

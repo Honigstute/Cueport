@@ -1,0 +1,40 @@
+{
+  "name": "cueport",
+  "version": "0.1.0",
+  "description": "A focused local presentation surface for website designs and static visual work.",
+  "main": "./out/main/index.js",
+  "author": "Cueport",
+  "license": "UNLICENSED",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p src/renderer/tsconfig.json",
+    "test": "vitest run",
+    "build": "pnpm typecheck && electron-vite build",
+    "verify": "pnpm test && pnpm build",
+    "dist": "pnpm build && electron-builder",
+    "dist:mac": "pnpm build && electron-builder --mac",
+    "dist:win": "pnpm build && electron-builder --win"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  }
+}

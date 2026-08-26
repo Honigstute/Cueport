@@ -1,0 +1,16 @@
+node_modules/
+.pnpm-store/
+out/
+release/
+.DS_Store
+*.log
+coverage/
+
+# Local configuration and release credentials never belong in source control.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
