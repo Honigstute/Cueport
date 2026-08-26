@@ -6,7 +6,7 @@ The desktop app targets macOS and Windows through Electron. Its React renderer i
 
 ## Run locally
 
-Requirements: Node.js 22.12 or newer and pnpm 11.
+Requirements: Node.js 22.13 or newer and pnpm 11.
 
 ```sh
 pnpm install --frozen-lockfile
