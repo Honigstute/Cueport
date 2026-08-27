@@ -36,7 +36,7 @@ describe('presentationReducer', () => {
     expect(state.slides[1].url).toBe('blob:b')
   })
 
-  it('keeps reference images ordered separately from the presentation sequence', () => {
+  it('keeps reference media ordered separately from the presentation sequence', () => {
     let state = createInitialState()
     state = presentationReducer(state, { type: 'ADD_SLIDES', slides: [slide('frame')] })
     state = presentationReducer(state, { type: 'ADD_REFERENCES', references: [slide('ref-a'), slide('ref-b')] })

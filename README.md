@@ -18,7 +18,7 @@ Drop JPEG, PNG, WebP, or MP4 files into the start screen or choose media from th
 ## Main controls
 
 - **Sequence** contains the presentation order. Drag cards to rearrange them.
-- **References** stores supporting images that can be placed temporarily over a slide.
+- **References** stores supporting images and MP4 animations that can be placed temporarily over a slide. Reference videos stay paused until played and then loop.
 - **Fit width** fills the available width and scrolls vertically.
 - **Canvas** provides zooming, panning, viewports, frames, colors, client branding, and an optional fold marker.
 - **Settings** contains presentation-wide title options.

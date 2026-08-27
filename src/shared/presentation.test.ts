@@ -75,6 +75,23 @@ describe('portable presentation documents', () => {
     expect(mimeTypeFromFileName('Prototype.MP4')).toBe('video/mp4')
   })
 
+  it('stores MP4 references with the same portable poster contract', () => {
+    const document = documentFixture()
+    document.references[0] = {
+      ...document.references[0],
+      name: 'Button motion.mp4',
+      assetKey: `references/${REFERENCE_ID}.mp4`,
+      mimeType: 'video/mp4',
+      posterKey: `thumbnails/${REFERENCE_ID}.jpg`
+    }
+
+    expect(parsePresentationDocument(document).references[0]).toMatchObject({
+      assetKey: `references/${REFERENCE_ID}.mp4`,
+      mimeType: 'video/mp4',
+      posterKey: `thumbnails/${REFERENCE_ID}.jpg`
+    })
+  })
+
   it('rejects path traversal, absolute paths, and duplicate asset identifiers', () => {
     expect(() => validateAssetKey('../private/image.png')).toThrow(/unsafe key/i)
     expect(() => validateAssetKey('/private/image.png')).toThrow(/invalid key/i)

@@ -29,7 +29,7 @@ export interface SlideAsset {
   sourceKey: string | null
 }
 
-/** Reference assets share the media model but remain still-image overlays. */
+/** Reference assets use the same image/video pipeline as sequence media. */
 export type ReferenceAsset = SlideAsset
 
 export type ChromeMode = 'hidden' | 'top' | 'all' | 'sequence' | 'settings'

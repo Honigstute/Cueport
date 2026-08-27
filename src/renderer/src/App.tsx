@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { AssetImportError, createLogoAsset, createPresentationPreviewDataUrl, createSlideAsset, createVideoPosterDataUrl, isSupportedVideoName, revokeLocalAsset, revokeSlideAsset } from './lib/assets'
+import { createLogoAsset, createPresentationPreviewDataUrl, createSlideAsset, createVideoPosterDataUrl, revokeLocalAsset, revokeSlideAsset } from './lib/assets'
 import { normalizeHex } from './lib/colors'
 import { Filmstrip } from './components/Filmstrip'
 import { HelpDialog } from './components/HelpDialog'
@@ -200,9 +200,6 @@ export default function App(): React.JSX.Element {
     // megabytes, while videos briefly need a decoder to capture their poster.
     for (const file of files) {
       try {
-        if (target === 'references' && isSupportedVideoName(file.name)) {
-          throw new AssetImportError('MP4 videos can be added to the sequence, not the References tray.')
-        }
         imported.push(await createSlideAsset(file))
       } catch (error) {
         failures.push(error)
@@ -456,20 +453,21 @@ export default function App(): React.JSX.Element {
         sourceKey: slide.sourceKey,
         thumbnailDataUrl: await createVideoPosterDataUrl(slide)
       })))
+      const references = await Promise.all(state.references.map(async (reference) => ({
+        id: reference.id,
+        name: reference.name,
+        width: reference.width,
+        height: reference.height,
+        sourceKey: reference.sourceKey,
+        thumbnailDataUrl: await createVideoPosterDataUrl(reference)
+      })))
       const summary = await window.cueport.savePresentation({
         id: savedPresentation?.id ?? null,
         name,
         activeSlideId: state.activeId,
         settings: toStoredSettings(state),
         slides,
-        references: state.references.map((reference) => ({
-          id: reference.id,
-          name: reference.name,
-          width: reference.width,
-          height: reference.height,
-          sourceKey: reference.sourceKey,
-          thumbnailDataUrl: null
-        })),
+        references,
         brand: { logoName: state.brand.logoName, sourceKey: state.brand.logoSourceKey },
         previewDataUrl
       })
@@ -793,7 +791,7 @@ export default function App(): React.JSX.Element {
         type="file"
       />
       <input
-        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+        accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4"
         hidden
         multiple
         onChange={(event) => {
@@ -928,7 +926,7 @@ export default function App(): React.JSX.Element {
           <div>
             <IconDrop />
             <strong>Release to add to {isHome || leftPanelTab === 'sequence' ? 'the sequence' : 'References'}</strong>
-            <span>{isHome || leftPanelTab === 'sequence' ? 'JPEG, PNG, WebP, or MP4' : 'JPEG, PNG, or WebP'}</span>
+            <span>JPEG, PNG, WebP, or MP4</span>
           </div>
         </div>
       )}

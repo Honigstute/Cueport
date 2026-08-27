@@ -53,6 +53,15 @@ function createOverlayId(): string {
   return globalThis.crypto.randomUUID()
 }
 
+/** Native video controls occupy the lower edge; keep that area interactive. */
+function isVideoControlArea(event: React.PointerEvent<HTMLDivElement>): boolean {
+  const video = event.target instanceof Element ? event.target.closest('video') : null
+  if (!(video instanceof HTMLVideoElement)) return false
+  const bounds = video.getBoundingClientRect()
+  const controlHeight = Math.min(48, Math.max(30, bounds.height * 0.3))
+  return event.clientY >= bounds.bottom - controlHeight
+}
+
 /** Temporary, screen-fixed reference artwork that deliberately never enters saved state. */
 export const ReferenceOverlayLayer = forwardRef<ReferenceOverlayLayerHandle, ReferenceOverlayLayerProps>(
   function ReferenceOverlayLayer({ references, slideId }, forwardedRef): React.JSX.Element {
@@ -193,6 +202,11 @@ export const ReferenceOverlayLayer = forwardRef<ReferenceOverlayLayerHandle, Ref
 
     const beginMove = (event: React.PointerEvent<HTMLDivElement>, overlayId: string): void => {
       if (event.button !== 0) return
+      if (isVideoControlArea(event)) {
+        // Do not prevent the native play, scrub, volume, or fullscreen action.
+        event.stopPropagation()
+        return
+      }
       const overlay = overlays.find((candidate) => candidate.id === overlayId)
       if (!overlay) return
       event.preventDefault()
@@ -307,7 +321,20 @@ export const ReferenceOverlayLayer = forwardRef<ReferenceOverlayLayerHandle, Ref
               }}
               tabIndex={0}
             >
-              <img alt={reference.name} draggable={false} src={reference.url} />
+              {reference.mimeType === 'video/mp4' ? (
+                <video
+                  aria-label={reference.name}
+                  controls
+                  draggable={false}
+                  loop
+                  playsInline
+                  poster={reference.thumbnailUrl}
+                  preload="metadata"
+                  src={reference.url}
+                />
+              ) : (
+                <img alt={reference.name} draggable={false} src={reference.url} />
+              )}
               {RESIZE_CORNERS.map((corner) => (
                 <button
                   aria-label={`Resize from ${corner.replace('-', ' ')}`}
@@ -391,13 +418,18 @@ function ReferencePickerMenu({ references, onChoose, onClose, x, y }: ReferenceP
         <div className="reference-picker-grid">
           {references.map((reference) => (
             <button key={reference.id} onClick={() => onChoose(reference)} role="menuitem" type="button">
-              <span><img alt="" draggable={false} src={reference.thumbnailUrl} /></span>
+              <span>
+                <img alt="" draggable={false} src={reference.thumbnailUrl} />
+                {reference.mimeType === 'video/mp4' && (
+                  <span aria-hidden="true" className="thumbnail-video-badge"><Icon name="play" size={15} /></span>
+                )}
+              </span>
               <small title={reference.name}>{reference.name}</small>
             </button>
           ))}
         </div>
       ) : (
-        <p className="reference-picker-empty">Add images in the References tray first.</p>
+        <p className="reference-picker-empty">Add images or videos in the References tray first.</p>
       )}
     </div>,
     document.body

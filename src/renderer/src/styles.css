@@ -1415,6 +1415,7 @@ html[data-platform="darwin"] .top-bar-content {
   border-radius: var(--radius-xs);
   display: block;
   overflow: hidden;
+  position: relative;
   width: 100%;
 }
 
@@ -1750,7 +1751,7 @@ html[data-slide-direction="previous"]::view-transition-new(cueport-slide) {
   outline: 0;
 }
 
-.reference-overlay > img {
+.reference-overlay > :is(img, video) {
   border-radius: var(--radius-sm);
   box-shadow: none;
   height: 100%;
@@ -1761,15 +1762,20 @@ html[data-slide-direction="previous"]::view-transition-new(cueport-slide) {
   width: 100%;
 }
 
-.reference-overlay[data-selected="true"] > img {
+.reference-overlay > video {
+  background: #000;
+  pointer-events: auto;
+}
+
+.reference-overlay[data-selected="true"] > :is(img, video) {
   box-shadow: 0 0 0 2px var(--signal);
 }
 
-.stage[data-reference-shadow="true"] .reference-overlay > img {
+.stage[data-reference-shadow="true"] .reference-overlay > :is(img, video) {
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48);
 }
 
-.stage[data-reference-shadow="true"] .reference-overlay[data-selected="true"] > img {
+.stage[data-reference-shadow="true"] .reference-overlay[data-selected="true"] > :is(img, video) {
   box-shadow:
     0 0 0 2px var(--signal),
     0 18px 48px rgba(0, 0, 0, 0.52);

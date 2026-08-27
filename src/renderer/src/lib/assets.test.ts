@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { isSupportedImageName, isSupportedMediaName, isSupportedVideoName } from './assets'
 
 describe('presentation media support', () => {
-  it('accepts MP4 in the presentation pipeline without treating it as a reference image', () => {
+  it('accepts MP4 through the shared sequence and References media pipeline', () => {
     expect(isSupportedMediaName('walkthrough.MP4')).toBe(true)
     expect(isSupportedVideoName('walkthrough.MP4')).toBe(true)
     expect(isSupportedImageName('walkthrough.MP4')).toBe(false)

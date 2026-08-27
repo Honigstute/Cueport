@@ -215,7 +215,7 @@ export function Filmstrip({
       </div>
 
       <div
-        aria-label={isSequence ? 'Sequence media' : 'Reference images'}
+        aria-label={isSequence ? 'Sequence media' : 'Reference media'}
         className="filmstrip-list"
         data-reordering={draggedId !== null}
         ref={listRef}
@@ -225,7 +225,7 @@ export function Filmstrip({
           <div className="filmstrip-empty">
             <span><Icon name="image" size={17} /></span>
             <strong>{isSequence ? 'No frames yet' : 'No references yet'}</strong>
-            <small>{isSequence ? 'Add images or videos to build a sequence' : 'Add style guides or inspiration images'}</small>
+            <small>{isSequence ? 'Add images or videos to build a sequence' : 'Add static layouts or animation examples'}</small>
           </div>
         )}
         {assets.map((asset, index) => {

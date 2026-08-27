@@ -12,7 +12,7 @@ The source of truth is [`src/shared/presentation.ts`](../src/shared/presentation
 - ordered slide and reference collections.
 - an optional client-brand asset.
 
-Every media record contains an ID, display name, pixel dimensions, MIME type, and a relative `assetKey`. MP4 records may also contain a JPEG `posterKey`. A key such as `assets/<id>.png` or `assets/<id>.mp4` can resolve to a file in the desktop library today and to an object-storage key in a web publication later.
+Every media record contains an ID, display name, pixel dimensions, MIME type, and a relative `assetKey`. MP4 records in either the sequence or References may also contain a JPEG `posterKey`. A key such as `assets/<id>.png`, `assets/<id>.mp4`, or `references/<id>.mp4` can resolve to a file in the desktop library today and to an object-storage key in a web publication later.
 
 Runtime-only fields are excluded:
 
