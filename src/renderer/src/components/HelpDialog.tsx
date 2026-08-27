@@ -6,14 +6,14 @@ interface HelpDialogProps {
 }
 
 const SHORTCUTS = [
-  ['⌘ / Ctrl + O', 'Add images'],
-  ['←  →', 'Previous / next image'],
+  ['⌘ / Ctrl + O', 'Add media'],
+  ['←  →', 'Previous / next item'],
   ['F  G', 'Canvas / Fit width'],
   ['⌘ / Ctrl + scroll', 'Adjust canvas zoom'],
   ['⌘ / Ctrl + S', 'Save presentation'],
   ['0', 'Return to actual pixels'],
   ['V', 'Show or hide viewport'],
-  ['Home', 'Scroll active image to top'],
+  ['Home', 'Scroll active item to top'],
   ['H', 'Show or hide the side panels'],
   ['H twice', 'Show or hide the complete interface'],
   ['?', 'Open this reference'],

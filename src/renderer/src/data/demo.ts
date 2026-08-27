@@ -9,6 +9,7 @@ export function createDemoSlide(): SlideAsset {
     thumbnailUrl: url,
     width: 1440,
     height: 2600,
+    mimeType: 'image/jpeg',
     origin: 'demo',
     sourceKey: null
   }

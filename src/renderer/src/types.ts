@@ -6,13 +6,14 @@ import type {
   LogoPosition,
   PhoneBrowserBarsSettings,
   PresentationBrandSettings,
+  PresentationMediaMimeType,
   PresentationSettings,
   SequenceTitleSettings,
   ViewportSize
 } from '../../shared/presentation'
 
 export { CANVAS_FRAMES, DISPLAY_MODES }
-export type { CanvasFrame, DisplayMode, LogoPosition, PhoneBrowserBarsSettings, SequenceTitleSettings, ViewportSize }
+export type { CanvasFrame, DisplayMode, LogoPosition, PhoneBrowserBarsSettings, PresentationMediaMimeType, SequenceTitleSettings, ViewportSize }
 
 export type ViewportCategory = 'Desktop' | 'Laptop' | 'Mobile'
 
@@ -23,11 +24,12 @@ export interface SlideAsset {
   thumbnailUrl: string
   width: number
   height: number
+  mimeType: PresentationMediaMimeType
   origin: 'local' | 'demo'
   sourceKey: string | null
 }
 
-/** Reference assets share the image pipeline but never become presentation slides. */
+/** Reference assets share the media model but remain still-image overlays. */
 export type ReferenceAsset = SlideAsset
 
 export type ChromeMode = 'hidden' | 'top' | 'all' | 'sequence' | 'settings'

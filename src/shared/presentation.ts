@@ -10,11 +10,15 @@ export const PRESENTATION_DOCUMENT_VERSION = 1 as const
 export const DISPLAY_MODES = ['fit-width', 'canvas'] as const
 export const CANVAS_FRAMES = ['none', 'mac', 'windows', 'phone'] as const
 export const PRESENTATION_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
+export const PRESENTATION_VIDEO_MIME_TYPES = ['video/mp4'] as const
+export const PRESENTATION_MEDIA_MIME_TYPES = [...PRESENTATION_IMAGE_MIME_TYPES, ...PRESENTATION_VIDEO_MIME_TYPES] as const
 export const PRESENTATION_ASSET_MIME_TYPES = [...PRESENTATION_IMAGE_MIME_TYPES, 'image/svg+xml'] as const
 
 export type DisplayMode = (typeof DISPLAY_MODES)[number]
 export type CanvasFrame = (typeof CANVAS_FRAMES)[number]
 export type PresentationImageMimeType = (typeof PRESENTATION_IMAGE_MIME_TYPES)[number]
+export type PresentationVideoMimeType = (typeof PRESENTATION_VIDEO_MIME_TYPES)[number]
+export type PresentationMediaMimeType = (typeof PRESENTATION_MEDIA_MIME_TYPES)[number]
 export type PresentationAssetMimeType = (typeof PRESENTATION_ASSET_MIME_TYPES)[number]
 export type LogoPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
@@ -59,15 +63,20 @@ export interface PresentationSettings {
   brand: PresentationBrandSettings
 }
 
-export interface PresentationDocumentImage {
+export interface PresentationDocumentMedia {
   id: string
   name: string
   width: number
   height: number
   /** Safe, relative object key. Never an absolute local filesystem path. */
   assetKey: string
-  mimeType: PresentationImageMimeType
+  mimeType: PresentationMediaMimeType
+  /** Optional still image used before a video starts and in presentation lists. */
+  posterKey?: string
 }
+
+/** @deprecated Use PresentationDocumentMedia for image and video slides. */
+export type PresentationDocumentImage = PresentationDocumentMedia
 
 export interface PresentationDocumentBrand {
   name: string
@@ -83,8 +92,8 @@ export interface PresentationDocument {
   updatedAt: string
   activeSlideId: string
   settings: PresentationSettings
-  slides: PresentationDocumentImage[]
-  references: PresentationDocumentImage[]
+  slides: PresentationDocumentMedia[]
+  references: PresentationDocumentMedia[]
   brand: PresentationDocumentBrand | null
 }
 
@@ -232,15 +241,18 @@ export function sanitizePresentationSettings(value: unknown): PresentationSettin
   }
 }
 
-export function mimeTypeFromFileName(fileName: string): PresentationImageMimeType
+export function mimeTypeFromFileName(fileName: string): PresentationMediaMimeType
 export function mimeTypeFromFileName(fileName: string, allowSvg: true): PresentationAssetMimeType
-export function mimeTypeFromFileName(fileName: string, allowSvg = false): PresentationAssetMimeType {
+export function mimeTypeFromFileName(fileName: string, allowSvg = false): PresentationMediaMimeType | PresentationAssetMimeType {
   const extension = fileName.toLowerCase().split('.').pop()
   switch (extension) {
     case 'jpg':
     case 'jpeg': return 'image/jpeg'
     case 'png': return 'image/png'
     case 'webp': return 'image/webp'
+    case 'mp4':
+      if (!allowSvg) return 'video/mp4'
+      break
     case 'svg':
       if (allowSvg) return 'image/svg+xml'
       break
@@ -282,7 +294,7 @@ export function validateAssetKey(value: unknown): string {
   return value
 }
 
-function validateImageCollection(value: unknown, label: 'slide' | 'reference'): PresentationDocumentImage[] {
+function validateMediaCollection(value: unknown, label: 'slide' | 'reference'): PresentationDocumentMedia[] {
   if (!Array.isArray(value) || (label === 'slide' && value.length === 0) || value.length > MAX_IMAGES_PER_COLLECTION) {
     throw new Error(`The presentation has an invalid ${label} collection.`)
   }
@@ -293,16 +305,20 @@ function validateImageCollection(value: unknown, label: 'slide' | 'reference'): 
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 100000 || height > 100000) {
       throw new Error(`A presentation ${label} has invalid dimensions.`)
     }
-    if (!PRESENTATION_IMAGE_MIME_TYPES.includes(candidate.mimeType as PresentationImageMimeType)) {
-      throw new Error(`A presentation ${label} uses an unsupported image type.`)
+    if (!PRESENTATION_MEDIA_MIME_TYPES.includes(candidate.mimeType as PresentationMediaMimeType)) {
+      throw new Error(`A presentation ${label} uses an unsupported media type.`)
     }
+    const posterKey = candidate.posterKey === undefined
+      ? undefined
+      : validateAssetKey(candidate.posterKey)
     return {
       id: validateIdentifier(candidate.id, `A presentation ${label}`),
       name: validateName(candidate.name, `A presentation ${label}`, 300),
       width,
       height,
       assetKey: validateAssetKey(candidate.assetKey),
-      mimeType: candidate.mimeType as PresentationImageMimeType
+      mimeType: candidate.mimeType as PresentationMediaMimeType,
+      ...(posterKey && { posterKey })
     }
   })
 }
@@ -312,10 +328,10 @@ export function parsePresentationDocument(value: unknown): PresentationDocument 
   if (!isRecord(value) || value.schemaVersion !== PRESENTATION_DOCUMENT_VERSION) {
     throw new Error('The presentation document format is unsupported.')
   }
-  const slides = validateImageCollection(value.slides, 'slide')
-  const references = validateImageCollection(value.references ?? [], 'reference')
+  const slides = validateMediaCollection(value.slides, 'slide')
+  const references = validateMediaCollection(value.references ?? [], 'reference')
   const ids = [...slides, ...references].map((asset) => asset.id)
-  if (new Set(ids).size !== ids.length) throw new Error('The presentation contains duplicate image identifiers.')
+  if (new Set(ids).size !== ids.length) throw new Error('The presentation contains duplicate media identifiers.')
 
   let brand: PresentationDocumentBrand | null = null
   if (value.brand !== null && value.brand !== undefined) {
@@ -358,12 +374,12 @@ export function parseDesktopPresentationFile(value: unknown): PresentationDocume
     throw new Error('The saved presentation format is unsupported.')
   }
 
-  const migrateImages = (images: unknown, label: 'slide' | 'reference'): PresentationDocumentImage[] => {
-    if (!Array.isArray(images)) {
+  const migrateMedia = (assets: unknown, label: 'slide' | 'reference'): PresentationDocumentMedia[] => {
+    if (!Array.isArray(assets)) {
       if (label === 'reference') return []
       throw new Error('The saved presentation is missing its images.')
     }
-    return images.map((candidate) => {
+    return assets.map((candidate) => {
       if (!isRecord(candidate) || typeof candidate.assetFile !== 'string') {
         throw new Error(`A saved ${label} image is unreadable.`)
       }
@@ -390,7 +406,7 @@ export function parseDesktopPresentationFile(value: unknown): PresentationDocume
   }
 
   const fallbackDate = new Date().toISOString()
-  const slides = migrateImages(value.slides, 'slide')
+  const slides = migrateMedia(value.slides, 'slide')
   const document: PresentationDocument = {
     schemaVersion: PRESENTATION_DOCUMENT_VERSION,
     id: value.id as string,
@@ -404,7 +420,7 @@ export function parseDesktopPresentationFile(value: unknown): PresentationDocume
     activeSlideId: typeof value.activeSlideId === 'string' ? value.activeSlideId : slides[0]?.id ?? '',
     settings: sanitizePresentationSettings(value.settings),
     slides,
-    references: migrateImages(value.references, 'reference'),
+    references: migrateMedia(value.references, 'reference'),
     brand
   }
   return parsePresentationDocument(document)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { createLogoAsset, createPresentationPreviewDataUrl, createSlideAsset, revokeLocalAsset, revokeSlideAsset } from './lib/assets'
+import { AssetImportError, createLogoAsset, createPresentationPreviewDataUrl, createSlideAsset, createVideoPosterDataUrl, isSupportedVideoName, revokeLocalAsset, revokeSlideAsset } from './lib/assets'
 import { normalizeHex } from './lib/colors'
 import { Filmstrip } from './components/Filmstrip'
 import { HelpDialog } from './components/HelpDialog'
@@ -85,7 +85,7 @@ export default function App(): React.JSX.Element {
   const [fitWidthMeasurement, setFitWidthMeasurement] = useState<{ slideId: string; width: number } | null>(null)
   const [leftPanelTab, setLeftPanelTab] = useState<'sequence' | 'references'>('sequence')
 
-  const imageInputRef = useRef<HTMLInputElement>(null)
+  const mediaInputRef = useRef<HTMLInputElement>(null)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
   const importInFlightRef = useRef(false)
@@ -179,7 +179,7 @@ export default function App(): React.JSX.Element {
     toastTimerRef.current = window.setTimeout(() => setToast(null), tone === 'error' ? 5200 : 3200)
   }, [])
 
-  const importImages = useCallback(async (
+  const importMedia = useCallback(async (
     fileList: FileList | File[],
     target: 'sequence' | 'references' = 'sequence',
     startNewPresentation = false
@@ -187,7 +187,7 @@ export default function App(): React.JSX.Element {
     const files = Array.from(fileList)
     if (files.length === 0) return
     if (importInFlightRef.current) {
-      showToast('info', 'Finish the current import before adding more images.')
+      showToast('info', 'Finish the current import before adding more files.')
       return
     }
 
@@ -196,10 +196,13 @@ export default function App(): React.JSX.Element {
     const imported: SlideAsset[] = []
     const failures: unknown[] = []
 
-    // Decode one large design at a time. Website screenshots can expand to
-    // hundreds of megabytes in memory even when their JPEG files are small.
+    // Decode one large design at a time. Screenshots can expand to hundreds of
+    // megabytes, while videos briefly need a decoder to capture their poster.
     for (const file of files) {
       try {
+        if (target === 'references' && isSupportedVideoName(file.name)) {
+          throw new AssetImportError('MP4 videos can be added to the sequence, not the References tray.')
+        }
         imported.push(await createSlideAsset(file))
       } catch (error) {
         failures.push(error)
@@ -229,11 +232,11 @@ export default function App(): React.JSX.Element {
       setIsHome(false)
       showToast(
         'success',
-        `${imported.length} image${imported.length === 1 ? '' : 's'} added to ${target === 'references' ? 'References' : 'the sequence'}.`
+        `${imported.length} file${imported.length === 1 ? '' : 's'} added to ${target === 'references' ? 'References' : 'the sequence'}.`
       )
     }
     if (failures.length > 0) {
-      const firstMessage = failures[0] instanceof Error ? failures[0].message : 'One or more images could not be read.'
+      const firstMessage = failures[0] instanceof Error ? failures[0].message : 'One or more files could not be read.'
       showToast('error', failures.length === 1 ? firstMessage : `${failures.length} files were skipped. ${firstMessage}`)
     }
   }, [showToast])
@@ -259,9 +262,9 @@ export default function App(): React.JSX.Element {
         ? await window.cueport.renameImportedFile(slide.sourceKey, requestedName)
         : { name: requestedName }
       dispatch({ type: 'RENAME_SLIDE', id, name: result.name })
-      showToast('success', slide.sourceKey ? 'Image and source file renamed.' : 'Sequence title renamed.')
+      showToast('success', slide.sourceKey ? 'Sequence item and source file renamed.' : 'Sequence title renamed.')
     } catch (error) {
-      const message = error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': /, '') : 'The image could not be renamed.'
+      const message = error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': /, '') : 'The file could not be renamed.'
       showToast('error', message)
       throw error
     }
@@ -373,7 +376,7 @@ export default function App(): React.JSX.Element {
   }, [])
 
   const beginNewPresentation = useCallback((): void => {
-    imageInputRef.current?.click()
+    mediaInputRef.current?.click()
   }, [])
 
   const openSavedPresentation = useCallback(async (id: string): Promise<void> => {
@@ -385,9 +388,10 @@ export default function App(): React.JSX.Element {
         id: slide.id,
         name: slide.name,
         url: slide.url,
-        thumbnailUrl: slide.url,
+        thumbnailUrl: slide.thumbnailUrl,
         width: slide.width,
         height: slide.height,
+        mimeType: slide.mimeType,
         origin: 'local',
         sourceKey: slide.sourceKey
       }))
@@ -395,9 +399,10 @@ export default function App(): React.JSX.Element {
         id: reference.id,
         name: reference.name,
         url: reference.url,
-        thumbnailUrl: reference.url,
+        thumbnailUrl: reference.thumbnailUrl,
         width: reference.width,
         height: reference.height,
+        mimeType: reference.mimeType,
         origin: 'local',
         sourceKey: reference.sourceKey
       }))
@@ -438,29 +443,32 @@ export default function App(): React.JSX.Element {
   const persistPresentation = useCallback(async (name: string): Promise<void> => {
     if (!window.cueport) throw new Error('Saving is available in the desktop app.')
     if (saveInFlightRef.current) return
-    if (state.slides.length === 0) throw new Error('Add at least one image before saving.')
+    if (state.slides.length === 0) throw new Error('Add at least one image or video before saving.')
 
     saveInFlightRef.current = true
     try {
       const previewDataUrl = await createPresentationPreviewDataUrl(state.slides[0], state.brand.logoUrl)
+      const slides = await Promise.all(state.slides.map(async (slide) => ({
+        id: slide.id,
+        name: slide.name,
+        width: slide.width,
+        height: slide.height,
+        sourceKey: slide.sourceKey,
+        thumbnailDataUrl: await createVideoPosterDataUrl(slide)
+      })))
       const summary = await window.cueport.savePresentation({
         id: savedPresentation?.id ?? null,
         name,
         activeSlideId: state.activeId,
         settings: toStoredSettings(state),
-        slides: state.slides.map((slide) => ({
-          id: slide.id,
-          name: slide.name,
-          width: slide.width,
-          height: slide.height,
-          sourceKey: slide.sourceKey
-        })),
+        slides,
         references: state.references.map((reference) => ({
           id: reference.id,
           name: reference.name,
           width: reference.width,
           height: reference.height,
-          sourceKey: reference.sourceKey
+          sourceKey: reference.sourceKey,
+          thumbnailDataUrl: null
         })),
         brand: { logoName: state.brand.logoName, sourceKey: state.brand.logoSourceKey },
         previewDataUrl
@@ -688,7 +696,7 @@ export default function App(): React.JSX.Element {
 
       if (commandKey && event.key.toLowerCase() === 'o') {
         event.preventDefault()
-        imageInputRef.current?.click()
+        mediaInputRef.current?.click()
       } else if (
         event.key.toLowerCase() === 'h' &&
         !commandKey &&
@@ -756,7 +764,7 @@ export default function App(): React.JSX.Element {
     event.preventDefault()
     dragDepthRef.current = 0
     setIsDropActive(false)
-    void importImages(
+    void importMedia(
       event.dataTransfer.files,
       isHome ? 'sequence' : leftPanelTab,
       isHome
@@ -772,16 +780,16 @@ export default function App(): React.JSX.Element {
       onDrop={handleDrop}
     >
       <input
-        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+        accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4"
         hidden
         multiple
         onChange={(event) => {
           if (event.target.files) {
-            void importImages(event.target.files, 'sequence', isHome)
+            void importMedia(event.target.files, 'sequence', isHome)
           }
           event.target.value = ''
         }}
-        ref={imageInputRef}
+        ref={mediaInputRef}
         type="file"
       />
       <input
@@ -789,7 +797,7 @@ export default function App(): React.JSX.Element {
         hidden
         multiple
         onChange={(event) => {
-          if (event.target.files) void importImages(event.target.files, 'references')
+          if (event.target.files) void importMedia(event.target.files, 'references')
           event.target.value = ''
         }}
         ref={referenceInputRef}
@@ -838,7 +846,7 @@ export default function App(): React.JSX.Element {
           <Filmstrip
             activeTab={leftPanelTab}
             activeId={state.activeId}
-            onChooseImages={() => imageInputRef.current?.click()}
+            onChooseMedia={() => mediaInputRef.current?.click()}
             onChooseReferences={() => referenceInputRef.current?.click()}
             onMove={(fromIndex, toIndex) => dispatch({ type: 'MOVE_SLIDE', fromIndex, toIndex })}
             onMoveReference={(fromIndex, toIndex) => dispatch({ type: 'MOVE_REFERENCE', fromIndex, toIndex })}
@@ -868,7 +876,7 @@ export default function App(): React.JSX.Element {
           canNavigatePrevious={activeIndex > 0}
           isImporting={isImporting}
           mode={state.mode}
-          onChooseImages={() => imageInputRef.current?.click()}
+          onChooseMedia={() => mediaInputRef.current?.click()}
           onNavigate={setActiveByOffset}
           onFitWidthChange={updateFitWidthMeasurement}
           references={state.references}
@@ -920,7 +928,7 @@ export default function App(): React.JSX.Element {
           <div>
             <IconDrop />
             <strong>Release to add to {isHome || leftPanelTab === 'sequence' ? 'the sequence' : 'References'}</strong>
-            <span>JPEG, PNG, or WebP</span>
+            <span>{isHome || leftPanelTab === 'sequence' ? 'JPEG, PNG, WebP, or MP4' : 'JPEG, PNG, or WebP'}</span>
           </div>
         </div>
       )}

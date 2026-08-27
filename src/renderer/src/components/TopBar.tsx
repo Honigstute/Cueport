@@ -122,7 +122,7 @@ export function TopBar({
                   <div className="sequence-title-options">
                     <SettingToggle
                       checked={sequenceTitles.hideExtension}
-                      description="Remove PNG, JPEG, and WebP endings"
+                      description="Remove PNG, JPEG, WebP, and MP4 endings"
                       label="Hide file endings"
                       onChange={(hideExtension) => onSequenceTitlesChange({ hideExtension })}
                     />
@@ -140,7 +140,7 @@ export function TopBar({
             <div
               className="active-file"
               title={activeSlide
-                ? `${activeSlide.name} · Image ${formatDimensions(activeSlide.width, activeSlide.height)} · Display ${displayResolution ? formatDimensions(displayResolution.width, displayResolution.height) : '—'}`
+                ? `${activeSlide.name} · Source ${formatDimensions(activeSlide.width, activeSlide.height)} · Display ${displayResolution ? formatDimensions(displayResolution.width, displayResolution.height) : '—'}`
                 : undefined}
             >
               <span className="active-file-name">{activeSlide?.name ?? 'Untitled presentation'}</span>
@@ -148,7 +148,7 @@ export function TopBar({
               {activeSlide ? (
                 <>
                   <span className="active-file-meta active-file-meta-source">
-                    <span className="active-file-meta-label">Image</span>
+                    <span className="active-file-meta-label">Source</span>
                     {formatDimensions(activeSlide.width, activeSlide.height)}
                   </span>
                   <span aria-hidden="true" className="active-file-divider active-file-display-divider" />
@@ -158,7 +158,7 @@ export function TopBar({
                   </span>
                 </>
               ) : (
-                <span className="active-file-meta">No images loaded</span>
+                <span className="active-file-meta">No media loaded</span>
               )}
             </div>
           </div>

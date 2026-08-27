@@ -3,6 +3,7 @@ import {
   PRESENTATION_DOCUMENT_VERSION,
   parseDesktopPresentationFile,
   parsePresentationDocument,
+  mimeTypeFromFileName,
   sanitizePresentationSettings,
   validateAssetKey,
   type PresentationDocument
@@ -57,6 +58,23 @@ describe('portable presentation documents', () => {
     expect(JSON.stringify(parsed)).not.toContain('/Users/')
   })
 
+  it('stores MP4 slides with a portable poster reference', () => {
+    const document = documentFixture()
+    document.slides[0] = {
+      ...document.slides[0],
+      name: 'Prototype.mp4',
+      assetKey: `assets/${SLIDE_ID}.mp4`,
+      mimeType: 'video/mp4',
+      posterKey: `thumbnails/${SLIDE_ID}.jpg`
+    }
+
+    expect(parsePresentationDocument(document).slides[0]).toMatchObject({
+      mimeType: 'video/mp4',
+      posterKey: `thumbnails/${SLIDE_ID}.jpg`
+    })
+    expect(mimeTypeFromFileName('Prototype.MP4')).toBe('video/mp4')
+  })
+
   it('rejects path traversal, absolute paths, and duplicate asset identifiers', () => {
     expect(() => validateAssetKey('../private/image.png')).toThrow(/unsafe key/i)
     expect(() => validateAssetKey('/private/image.png')).toThrow(/invalid key/i)
@@ -64,7 +82,7 @@ describe('portable presentation documents', () => {
 
     const duplicate = documentFixture()
     duplicate.references[0].id = duplicate.slides[0].id
-    expect(() => parsePresentationDocument(duplicate)).toThrow(/duplicate image identifiers/i)
+    expect(() => parsePresentationDocument(duplicate)).toThrow(/duplicate media identifiers/i)
   })
 
   it('migrates the original desktop file into the portable document', () => {

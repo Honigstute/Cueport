@@ -7,6 +7,7 @@ describe('formatSequenceTitle', () => {
 
     expect(formatSequenceTitle('home.desktop.PNG', settings)).toBe('home.desktop')
     expect(formatSequenceTitle('photo.jpeg', settings)).toBe('photo')
+    expect(formatSequenceTitle('prototype.MP4', settings)).toBe('prototype')
     expect(formatSequenceTitle('archive.tiff', settings)).toBe('archive.tiff')
   })
 

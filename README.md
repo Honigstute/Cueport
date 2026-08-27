@@ -1,6 +1,6 @@
 # Cueport
 
-Cueport is a local-first desktop presenter for website designs and other static visual work. It keeps client images on the presenter’s computer and replaces desktop clutter with a controlled canvas, sequence, references, viewport previews, and optional client branding.
+Cueport is a local-first desktop presenter for website designs, walkthrough videos, and other visual work. It keeps client media on the presenter’s computer and replaces desktop clutter with a controlled canvas, sequence, references, viewport previews, and optional client branding.
 
 The desktop app targets macOS and Windows through Electron. Its React renderer is browser-only, and saved presentations use a portable document format so the presentation surface can later be published to the web without rebuilding its data model.
 
@@ -13,7 +13,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Drop JPEG, PNG, or WebP files into the start screen or choose images from the computer. Cueport can save, rename, reorder, reopen, and delete local presentations. Saved images remain inside Cueport’s private application library.
+Drop JPEG, PNG, WebP, or MP4 files into the start screen or choose media from the computer. Videos stay paused until started, use native playback controls, and loop while playing. Cueport can save, rename, reorder, reopen, and delete local presentations. Saved media remains inside Cueport’s private application library.
 
 ## Main controls
 
@@ -27,14 +27,14 @@ Drop JPEG, PNG, or WebP files into the start screen or choose images from the co
 
 | Shortcut | Action |
 | --- | --- |
-| `Cmd/Ctrl + O` | Add images |
+| `Cmd/Ctrl + O` | Add media |
 | `Cmd/Ctrl + S` | Save presentation |
-| `←` / `→` | Previous / next image |
+| `←` / `→` | Previous / next item |
 | `F` / `G` | Canvas / Fit width |
 | `Cmd/Ctrl + scroll` | Zoom toward the pointer in Canvas |
 | `0` | Return Canvas to 100% |
 | `V` | Show or hide the viewport |
-| `Home` | Scroll the active image to the top |
+| `Home` | Scroll the active item to the top |
 | `H` | Show or hide interface panels |
 | `?` | Open shortcut help |
 | `Esc` | Close help or hide the interface |
@@ -57,7 +57,7 @@ pnpm dist:win
 - [`src/shared/presentation.ts`](src/shared/presentation.ts) is the runtime-independent, versioned presentation document and settings validator.
 - [`src/shared/projects.ts`](src/shared/projects.ts) contains desktop runtime messages; opaque source keys and local URLs never enter the portable document.
 
-The Electron renderer is sandboxed, context-isolated, and has Node integration disabled. Saved asset references are relative keys such as `assets/<id>.png`, never absolute filesystem paths. Original version-1 desktop projects are migrated when read and are written in the portable format on their next save.
+The Electron renderer is sandboxed, context-isolated, and has Node integration disabled. Saved asset references are relative keys such as `assets/<id>.png` or `assets/<id>.mp4`, never absolute filesystem paths. MP4 files are streamed with byte-range support instead of being loaded into memory. Original version-1 desktop projects are migrated when read and are written in the portable format on their next save.
 
 See [`docs/PRESENTATION_FORMAT.md`](docs/PRESENTATION_FORMAT.md) for the document contract and [`docs/WEB_FOUNDATION.md`](docs/WEB_FOUNDATION.md) for the deliberate desktop/web boundary and next implementation phase.
 

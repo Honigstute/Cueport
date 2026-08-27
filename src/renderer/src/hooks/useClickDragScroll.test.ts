@@ -273,7 +273,26 @@ describe('useClickDragScroll', () => {
     const releasedAt = scroller.scrollTop
 
     fakeWindow.runAnimationFrame(33)
-    expect(scroller.scrollTop).toBeGreaterThan(releasedAt)
+    const firstGlidePosition = scroller.scrollTop
+    expect(firstGlidePosition).toBeGreaterThan(releasedAt)
+
+    fakeWindow.runAnimationFrame(50)
+    expect(scroller.scrollTop).toBeGreaterThan(firstGlidePosition)
+  })
+
+  it('interrupts vertical momentum as soon as the user scrolls again', () => {
+    const scroller = new FakeScroller()
+    const hook = renderHook()
+
+    hook.onPointerDown(pointerDownEvent(scroller, { timeStamp: 1 }) as never)
+    fakeWindow.dispatch('pointermove', pointerMoveEvent({ clientY: 70, timeStamp: 17 }))
+    fakeWindow.dispatch('pointerup', { pointerId: 7 })
+    fakeWindow.runAnimationFrame(33)
+    const interruptedAt = scroller.scrollTop
+
+    hook.onWheel({} as never)
+    fakeWindow.runAnimationFrame(50)
+    expect(scroller.scrollTop).toBe(interruptedAt)
   })
 
   it('commits immediately at the lower direction-locked navigation threshold', () => {

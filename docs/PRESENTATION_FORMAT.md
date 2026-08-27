@@ -1,6 +1,6 @@
 # Portable presentation format
 
-Cueport saves each presentation as a versioned JSON document plus its image assets. The document is deliberately independent of Electron, local filesystem paths, and temporary object URLs.
+Cueport saves each presentation as a versioned JSON document plus its media assets. The document is deliberately independent of Electron, local filesystem paths, and temporary object URLs.
 
 ## Contract
 
@@ -12,7 +12,7 @@ The source of truth is [`src/shared/presentation.ts`](../src/shared/presentation
 - ordered slide and reference collections.
 - an optional client-brand asset.
 
-Every image record contains an ID, display name, pixel dimensions, MIME type, and a relative `assetKey`. A key such as `assets/<id>.png` can resolve to a file in the desktop library today and to an object-storage key in a web publication later.
+Every media record contains an ID, display name, pixel dimensions, MIME type, and a relative `assetKey`. MP4 records may also contain a JPEG `posterKey`. A key such as `assets/<id>.png` or `assets/<id>.mp4` can resolve to a file in the desktop library today and to an object-storage key in a web publication later.
 
 Runtime-only fields are excluded:
 
@@ -25,8 +25,8 @@ Runtime-only fields are excluded:
 
 - Asset keys must be relative and cannot contain empty, current-directory, or parent-directory segments.
 - Slides and references have bounded dimensions and collection sizes.
-- IDs are UUIDs and cannot be duplicated across the two image collections.
-- Image and brand MIME types are allow-listed.
+- IDs are UUIDs and cannot be duplicated across the two media collections.
+- Image, MP4, poster, and brand MIME types are allow-listed.
 - Unknown settings are ignored and known settings are clamped to safe values.
 
 All readers must call `parsePresentationDocument` before trusting a document. Server code should additionally enforce account ownership and upload-size limits because document validation is not authorization.

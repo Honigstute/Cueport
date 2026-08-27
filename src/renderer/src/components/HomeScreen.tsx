@@ -237,7 +237,7 @@ export function HomeScreen({
           <span className="new-presentation-preview"><Icon name="add" size={24} /></span>
           <span className="presentation-card-copy">
             <strong>New presentation</strong>
-            <small>Choose or drop images</small>
+            <small>Choose or drop media</small>
           </span>
         </button>
 
@@ -283,7 +283,7 @@ export function HomeScreen({
                 </span>
                 <span className="presentation-card-copy">
                   <strong>{presentation.name}</strong>
-                  <small>{formatSavedDate(presentation.updatedAt)} · {presentation.slideCount} image{presentation.slideCount === 1 ? '' : 's'}</small>
+                  <small>{formatSavedDate(presentation.updatedAt)} · {presentation.slideCount} item{presentation.slideCount === 1 ? '' : 's'}</small>
                 </span>
               </button>
               <button

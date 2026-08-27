@@ -1,4 +1,4 @@
-import type { PresentationAssetMimeType, PresentationImageMimeType, PresentationSettings } from './presentation'
+import type { PresentationAssetMimeType, PresentationMediaMimeType, PresentationSettings } from './presentation'
 
 /**
  * Desktop runtime contracts shared by Electron and the renderer.
@@ -19,6 +19,7 @@ export interface SavePresentationSlide {
   width: number
   height: number
   sourceKey: string | null
+  thumbnailDataUrl: string | null
 }
 
 export interface SavePresentationRequest {
@@ -41,7 +42,8 @@ export interface OpenPresentationSlide {
   width: number
   height: number
   assetKey: string
-  mimeType: PresentationImageMimeType
+  mimeType: PresentationMediaMimeType
+  thumbnailUrl: string
   sourceKey: string
   url: string
 }

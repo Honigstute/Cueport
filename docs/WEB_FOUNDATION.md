@@ -22,7 +22,7 @@ The desktop app remains useful offline. Publishing is an explicit additional act
 
 - A small web/API service handles accounts, sessions, presentation ownership, share permissions, and signed upload/download access.
 - PostgreSQL on local server storage holds users, publications, revisions, and permissions.
-- S3-compatible object storage holds immutable image assets and optional generated previews.
+- S3-compatible object storage holds immutable image/video assets and generated video posters.
 - A reverse proxy provides TLS, a stable domain, upload limits, and request logging.
 
 Do not store the relational database inside object storage or network-mounted storage. Do not place project-wide object-storage credentials in the desktop app or browser. The API should issue short-lived, narrowly scoped upload access or proxy the upload.

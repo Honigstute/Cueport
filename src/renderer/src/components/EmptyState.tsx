@@ -2,20 +2,20 @@ import { Icon } from './Icon'
 
 interface EmptyStateProps {
   isImporting: boolean
-  onChooseImages: () => void
+  onChooseMedia: () => void
 }
 
-export function EmptyState({ isImporting, onChooseImages }: EmptyStateProps): React.JSX.Element {
+export function EmptyState({ isImporting, onChooseMedia }: EmptyStateProps): React.JSX.Element {
   return (
     <div className="empty-state">
       <div className="empty-import">
         <div className="empty-drop-zone">
           <span className="empty-drop-icon"><Icon name={isImporting ? 'spark' : 'upload'} size={20} /></span>
-          <strong>{isImporting ? 'Reading images…' : 'Drop images to begin'}</strong>
-          <small>JPEG, PNG or WebP · multiple files supported</small>
+          <strong>{isImporting ? 'Reading media…' : 'Drop media to begin'}</strong>
+          <small>JPEG, PNG, WebP or MP4 · multiple files supported</small>
         </div>
-        <button className="empty-primary" disabled={isImporting} onClick={onChooseImages} type="button">
-          {isImporting ? 'Reading images…' : 'Choose images'}
+        <button className="empty-primary" disabled={isImporting} onClick={onChooseMedia} type="button">
+          {isImporting ? 'Reading media…' : 'Choose media'}
         </button>
       </div>
     </div>

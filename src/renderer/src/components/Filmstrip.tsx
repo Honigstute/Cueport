@@ -19,7 +19,7 @@ interface FilmstripProps {
   onRename: (id: string, name: string) => Promise<void>
   onMove: (fromIndex: number, toIndex: number) => void
   onMoveReference: (fromIndex: number, toIndex: number) => void
-  onChooseImages: () => void
+  onChooseMedia: () => void
   onChooseReferences: () => void
   onRemoveReference: (id: string) => void
   onTabChange: (tab: 'sequence' | 'references') => void
@@ -36,7 +36,7 @@ export function Filmstrip({
   onRename,
   onMove,
   onMoveReference,
-  onChooseImages,
+  onChooseMedia,
   onChooseReferences,
   onRemoveReference,
   onTabChange,
@@ -188,8 +188,8 @@ export function Filmstrip({
   }
 
   return (
-    <aside className="filmstrip" aria-label="Presentation images">
-      <div aria-label="Image trays" className="filmstrip-tabs" role="tablist">
+    <aside className="filmstrip" aria-label="Presentation media">
+      <div aria-label="Media trays" className="filmstrip-tabs" role="tablist">
         <button
           aria-selected={isSequence}
           data-active={isSequence}
@@ -215,7 +215,7 @@ export function Filmstrip({
       </div>
 
       <div
-        aria-label={isSequence ? 'Sequence images' : 'Reference images'}
+        aria-label={isSequence ? 'Sequence media' : 'Reference images'}
         className="filmstrip-list"
         data-reordering={draggedId !== null}
         ref={listRef}
@@ -225,7 +225,7 @@ export function Filmstrip({
           <div className="filmstrip-empty">
             <span><Icon name="image" size={17} /></span>
             <strong>{isSequence ? 'No frames yet' : 'No references yet'}</strong>
-            <small>{isSequence ? 'Add images to build a sequence' : 'Add style guides or inspiration images'}</small>
+            <small>{isSequence ? 'Add images or videos to build a sequence' : 'Add style guides or inspiration images'}</small>
           </div>
         )}
         {assets.map((asset, index) => {
@@ -270,6 +270,7 @@ export function Filmstrip({
               >
                 <span className="thumbnail-frame">
                   <img alt="" draggable={false} loading="lazy" src={asset.thumbnailUrl} />
+                  {asset.mimeType === 'video/mp4' && <span aria-hidden="true" className="thumbnail-video-badge"><Icon name="play" size={15} /></span>}
                   <span className="slide-number">{index + 1}</span>
                 </span>
                 <span className="slide-details">
@@ -278,6 +279,7 @@ export function Filmstrip({
               </button> : <div aria-label={`Reference ${index + 1}: ${asset.name}`} className="slide-select reference-select">
                 <span className="thumbnail-frame">
                   <img alt="" draggable={false} loading="lazy" src={asset.thumbnailUrl} />
+                  {asset.mimeType === 'video/mp4' && <span aria-hidden="true" className="thumbnail-video-badge"><Icon name="play" size={15} /></span>}
                   <span className="slide-number">{index + 1}</span>
                 </span>
                 <span className="slide-details">
@@ -298,9 +300,9 @@ export function Filmstrip({
         })}
       </div>
 
-      <button className="filmstrip-add" onClick={isSequence ? onChooseImages : onChooseReferences} type="button">
+      <button className="filmstrip-add" onClick={isSequence ? onChooseMedia : onChooseReferences} type="button">
         <Icon name="add" size={15} />
-        {isSequence ? 'Add images' : 'Add references'}
+        {isSequence ? 'Add media' : 'Add references'}
       </button>
 
       {contextSlide && contextMenu && (

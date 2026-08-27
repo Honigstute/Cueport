@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const DRAG_THRESHOLD = 5
-const MAX_VELOCITY = 3.2
-const MOMENTUM_FRICTION = 0.92
-const MOMENTUM_STOP_VELOCITY = 0.025
+const MAX_HORIZONTAL_VELOCITY = 3.2
+const MAX_VERTICAL_VELOCITY = 4
+const HORIZONTAL_MOMENTUM_FRICTION = 0.9
+const VERTICAL_MOMENTUM_FRICTION = 0.94
+const MOMENTUM_STOP_VELOCITY = 0.02
 const NAVIGATION_AXIS_RATIO = 1.35
 const NAVIGATION_THRESHOLD_RATIO = 0.08
 const NAVIGATION_THRESHOLD_MIN = 72
@@ -69,8 +71,8 @@ function pointerTime(event: { timeStamp: number }): number {
   return Number.isFinite(event.timeStamp) && event.timeStamp > 0 ? event.timeStamp : performance.now()
 }
 
-function clampVelocity(velocity: number): number {
-  return Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, velocity))
+function clampVelocity(velocity: number, maximum: number): number {
+  return Math.max(-maximum, Math.min(maximum, velocity))
 }
 
 function navigationThreshold(viewportWidth: number): number {
@@ -176,9 +178,8 @@ export function useClickDragScroll(
     const advance = (time: number): void => {
       const elapsed = Math.min(32, Math.max(1, time - previousTime))
       previousTime = time
-      const decay = Math.pow(MOMENTUM_FRICTION, elapsed / 16.67)
-      velocityX *= decay
-      velocityY *= decay
+      velocityX *= Math.pow(HORIZONTAL_MOMENTUM_FRICTION, elapsed / 16.67)
+      velocityY *= Math.pow(VERTICAL_MOMENTUM_FRICTION, elapsed / 16.67)
 
       const previousLeft = horizontalScroller.scrollLeft
       const previousTop = verticalScroller.scrollTop
@@ -377,8 +378,8 @@ export function useClickDragScroll(
       const elapsed = Math.max(1, time - origin.lastTime)
       const nextVelocityX = canScrollX ? -(pointerEvent.clientX - origin.lastX) / elapsed : 0
       const nextVelocityY = canScrollY ? -(pointerEvent.clientY - origin.lastY) / elapsed : 0
-      origin.velocityX = clampVelocity(origin.velocityX * 0.45 + nextVelocityX * 0.55)
-      origin.velocityY = clampVelocity(origin.velocityY * 0.45 + nextVelocityY * 0.55)
+      origin.velocityX = clampVelocity(origin.velocityX * 0.45 + nextVelocityX * 0.55, MAX_HORIZONTAL_VELOCITY)
+      origin.velocityY = clampVelocity(origin.velocityY * 0.45 + nextVelocityY * 0.55, MAX_VERTICAL_VELOCITY)
       origin.lastX = pointerEvent.clientX
       origin.lastY = pointerEvent.clientY
       origin.lastTime = time

@@ -39,7 +39,7 @@ export function SlideContextMenu({ x, y, onClose, onRemove, onRename }: SlideCon
 
   return createPortal(
     <div
-      aria-label="Image actions"
+      aria-label="Media actions"
       className="slide-context-menu"
       ref={menuRef}
       role="menu"
@@ -47,11 +47,11 @@ export function SlideContextMenu({ x, y, onClose, onRemove, onRename }: SlideCon
     >
       <button onClick={onRename} role="menuitem" type="button">
         <Icon name="edit" size={15} />
-        <span>Rename image</span>
+        <span>Rename file</span>
       </button>
       <button className="danger" onClick={onRemove} role="menuitem" type="button">
         <Icon name="remove" size={15} />
-        <span>Remove image</span>
+        <span>Remove from sequence</span>
       </button>
     </div>,
     document.body
@@ -96,7 +96,7 @@ export function RenameSlideDialog({ slide, onCancel, onRename }: RenameSlideDial
       await onRename(`${nextBaseName}${extension}`)
       onCancel()
     } catch {
-      setError('The image could not be renamed. Check whether that name already exists.')
+      setError('The file could not be renamed. Check whether that name already exists.')
     } finally {
       setIsSaving(false)
     }
@@ -110,12 +110,12 @@ export function RenameSlideDialog({ slide, onCancel, onRename }: RenameSlideDial
     >
       <form aria-labelledby="rename-image-title" aria-modal="true" className="rename-dialog" onSubmit={(event) => void submit(event)} role="dialog">
         <div className="rename-dialog-copy">
-          <span className="eyebrow">Sequence image</span>
-          <h2 id="rename-image-title">Rename image</h2>
+          <span className="eyebrow">Sequence item</span>
+          <h2 id="rename-image-title">Rename file</h2>
           <p>{slide.sourceKey ? 'The original source file will be renamed too.' : 'Only the sequence title will change.'}</p>
         </div>
         <label className="rename-field">
-          <span>Image name</span>
+          <span>File name</span>
           <span className="rename-input-shell">
             <input
               autoComplete="off"

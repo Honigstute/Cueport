@@ -1,7 +1,9 @@
 import { app, BrowserWindow, ipcMain, Menu, protocol, session, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
+import { createReadStream } from 'node:fs'
 import { access, copyFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { Readable } from 'node:stream'
 import type { OpenPresentationResult, SavePresentationRequest, SavedPresentationSummary } from '../shared/projects'
 import {
   PRESENTATION_DOCUMENT_VERSION,
@@ -11,11 +13,12 @@ import {
   sanitizePresentationSettings,
   type PresentationDocument
 } from '../shared/presentation'
+import { resolveByteRange } from './httpRange'
 
 const DEVELOPMENT_RENDERER_URL = process.env.ELECTRON_RENDERER_URL
 const DEVELOPMENT_ICON = join(app.getAppPath(), 'build/icon.png')
-const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
-const SUPPORTED_ASSET_EXTENSIONS = new Set([...SUPPORTED_IMAGE_EXTENSIONS, '.svg'])
+const SUPPORTED_PRESENTATION_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.mp4'])
+const SUPPORTED_ASSET_EXTENSIONS = new Set([...SUPPORTED_PRESENTATION_EXTENSIONS, '.svg'])
 const ASSET_SCHEME = 'cueport-asset'
 const importedAssetPaths = new Map<string, string>()
 const importedPathKeys = new Map<string, string>()
@@ -57,10 +60,10 @@ function isTrustedRenderer(event: IpcMainInvokeEvent): boolean {
 
 function validateAssetPath(filePath: unknown): string {
   if (typeof filePath !== 'string' || !isAbsolute(filePath)) {
-    throw new Error('The selected image path is invalid.')
+    throw new Error('The selected media path is invalid.')
   }
   if (!SUPPORTED_ASSET_EXTENSIONS.has(extname(filePath).toLowerCase())) {
-    throw new Error('Only imported JPEG, PNG, WebP, and SVG files are supported.')
+    throw new Error('Only imported JPEG, PNG, WebP, MP4, and SVG files are supported.')
   }
   return filePath
 }
@@ -76,7 +79,7 @@ function validateRenamedFileName(currentPath: string, nextName: unknown): string
     throw new Error('Use a short filename without slashes or reserved characters.')
   }
   if (extname(nextName).toLowerCase() !== extname(currentPath).toLowerCase()) {
-    throw new Error('Keep the original image file ending.')
+    throw new Error('Keep the original file ending.')
   }
   return nextName.trim()
 }
@@ -143,7 +146,7 @@ function validatePresentationName(value: unknown): string {
 
 function validateSlideId(value: unknown): string {
   if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/i.test(value)) {
-    throw new Error('One of the presentation images has an invalid identifier.')
+    throw new Error('One of the presentation items has an invalid identifier.')
   }
   return value
 }
@@ -169,6 +172,7 @@ function contentTypeForPath(filePath: string): string {
     case '.jpeg': return 'image/jpeg'
     case '.png': return 'image/png'
     case '.webp': return 'image/webp'
+    case '.mp4': return 'video/mp4'
     case '.svg': return 'image/svg+xml'
     default: return 'application/octet-stream'
   }
@@ -182,12 +186,31 @@ function configureAssetProtocol(): void {
     if (!filePath) return new Response('Asset not found.', { status: 404 })
 
     try {
-      const bytes = await readFile(filePath)
-      return new Response(bytes, {
+      const fileStats = await stat(filePath)
+      if (!fileStats.isFile()) return new Response('Asset not found.', { status: 404 })
+      const byteRange = resolveByteRange(request.headers.get('range'), fileStats.size)
+      const commonHeaders = {
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store',
+        'Content-Type': contentTypeForPath(filePath)
+      }
+      if (byteRange === null) {
+        return new Response('Requested range is unavailable.', {
+          status: 416,
+          headers: { ...commonHeaders, 'Content-Range': `bytes */${fileStats.size}` }
+        })
+      }
+
+      const stream = createReadStream(filePath, byteRange
+        ? { start: byteRange.start, end: byteRange.end }
+        : undefined)
+      return new Response(Readable.toWeb(stream) as ReadableStream, {
+        status: byteRange ? 206 : 200,
         headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store',
-          'Content-Type': contentTypeForPath(filePath)
+          ...commonHeaders,
+          'Content-Length': String(byteRange?.length ?? fileStats.size),
+          ...(byteRange && { 'Content-Range': `bytes ${byteRange.start}-${byteRange.end}/${fileStats.size}` })
         }
       })
     } catch {
@@ -237,7 +260,7 @@ function validateSaveRequest(candidate: unknown): SavePresentationRequest {
   const id = request.id === null || request.id === undefined ? null : validateProjectId(request.id)
   const name = validatePresentationName(request.name)
   if (!Array.isArray(request.slides) || request.slides.length === 0 || request.slides.length > 500) {
-    throw new Error('Add at least one image before saving the presentation.')
+    throw new Error('Add at least one image or video before saving the presentation.')
   }
   if (Array.isArray(request.references) && request.references.length > 500) {
     throw new Error('Keep the reference tray below 500 images.')
@@ -252,12 +275,15 @@ function validateSaveRequest(candidate: unknown): SavePresentationRequest {
     const width = Number(asset.width)
     const height = Number(asset.height)
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 100000 || height > 100000) {
-      throw new Error(`One of the ${kind} images has invalid dimensions.`)
+      throw new Error(`One of the ${kind} items has invalid dimensions.`)
     }
     if (typeof asset.name !== 'string' || !asset.name.trim() || asset.name.length > 300) {
-      throw new Error(`One of the ${kind} images has an invalid name.`)
+      throw new Error(`One of the ${kind} items has an invalid name.`)
     }
-    return { id: validateSlideId(asset.id), name: asset.name, width, height, sourceKey: asset.sourceKey }
+    const thumbnailDataUrl = typeof asset.thumbnailDataUrl === 'string' && asset.thumbnailDataUrl.length <= 2_000_000
+      ? asset.thumbnailDataUrl
+      : null
+    return { id: validateSlideId(asset.id), name: asset.name, width, height, sourceKey: asset.sourceKey, thumbnailDataUrl }
   })
   const slides = validateRequestAssets(request.slides, 'presentation')
   const references = Array.isArray(request.references)
@@ -265,7 +291,7 @@ function validateSaveRequest(candidate: unknown): SavePresentationRequest {
     : []
   const assetIds = [...slides, ...references].map((asset) => asset.id)
   if (new Set(assetIds).size !== assetIds.length) {
-    throw new Error('Presentation and reference images must have unique identifiers.')
+    throw new Error('Presentation and reference items must have unique identifiers.')
   }
   const activeSlideId = typeof request.activeSlideId === 'string' && slides.some((slide) => slide.id === request.activeSlideId)
     ? request.activeSlideId
@@ -289,7 +315,7 @@ function validateSaveRequest(candidate: unknown): SavePresentationRequest {
   return { id, name, activeSlideId, settings, slides, references, brand, previewDataUrl }
 }
 
-function decodePreview(dataUrl: string): Buffer | null {
+function decodeJpegDataUrl(dataUrl: string): Buffer | null {
   const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
   return match ? Buffer.from(match[1], 'base64') : null
 }
@@ -297,17 +323,19 @@ function decodePreview(dataUrl: string): Buffer | null {
 async function projectSummary(project: PresentationDocument): Promise<SavedPresentationSummary> {
   const directory = projectDirectory(project.id)
   const previewPath = join(directory, 'preview.jpg')
-  const fallbackPath = resolveProjectAsset(
-    directory,
-    project.brand?.assetKey ?? project.slides[0].assetKey
-  )
-  const selectedPreview = await pathExists(previewPath) ? previewPath : fallbackPath
-  const previewKey = registerAssetPath(selectedPreview)
+  const fallbackAssetKey = project.brand?.assetKey ??
+    project.slides.find((slide) => slide.posterKey)?.posterKey ??
+    project.slides.find((slide) => slide.mimeType.startsWith('image/'))?.assetKey
+  const selectedPreview = await pathExists(previewPath)
+    ? previewPath
+    : fallbackAssetKey
+      ? resolveProjectAsset(directory, fallbackAssetKey)
+      : null
   return {
     id: project.id,
     name: project.name,
     updatedAt: project.updatedAt,
-    previewUrl: localAssetUrl(previewKey),
+    previewUrl: selectedPreview ? localAssetUrl(registerAssetPath(selectedPreview)) : null,
     slideCount: project.slides.length
   }
 }
@@ -348,13 +376,21 @@ function configurePresentationHandlers(): void {
       const sourcePath = importedAssetPaths.get(slide.sourceKey!)!
       const assetKey = `assets/${slide.id}${extname(sourcePath).toLowerCase()}`
       await copyRegisteredAsset(slide.sourceKey!, resolveProjectAsset(directory, assetKey))
+      const poster = slide.thumbnailDataUrl ? decodeJpegDataUrl(slide.thumbnailDataUrl) : null
+      const posterKey = poster ? `thumbnails/${slide.id}.jpg` : undefined
+      if (poster && posterKey) {
+        const posterPath = resolveProjectAsset(directory, posterKey)
+        await mkdir(dirname(posterPath), { recursive: true })
+        await writeFile(posterPath, poster)
+      }
       slides.push({
         id: slide.id,
         name: slide.name,
         width: slide.width,
         height: slide.height,
         assetKey,
-        mimeType: mimeTypeFromFileName(sourcePath)
+        mimeType: mimeTypeFromFileName(sourcePath),
+        ...(posterKey && { posterKey })
       })
     }
 
@@ -362,13 +398,21 @@ function configurePresentationHandlers(): void {
       const sourcePath = importedAssetPaths.get(reference.sourceKey!)!
       const assetKey = `references/${reference.id}${extname(sourcePath).toLowerCase()}`
       await copyRegisteredAsset(reference.sourceKey!, resolveProjectAsset(directory, assetKey))
+      const poster = reference.thumbnailDataUrl ? decodeJpegDataUrl(reference.thumbnailDataUrl) : null
+      const posterKey = poster ? `thumbnails/${reference.id}.jpg` : undefined
+      if (poster && posterKey) {
+        const posterPath = resolveProjectAsset(directory, posterKey)
+        await mkdir(dirname(posterPath), { recursive: true })
+        await writeFile(posterPath, poster)
+      }
       references.push({
         id: reference.id,
         name: reference.name,
         width: reference.width,
         height: reference.height,
         assetKey,
-        mimeType: mimeTypeFromFileName(sourcePath)
+        mimeType: mimeTypeFromFileName(sourcePath),
+        ...(posterKey && { posterKey })
       })
     }
 
@@ -385,7 +429,7 @@ function configurePresentationHandlers(): void {
     }
 
     const previewPath = join(directory, 'preview.jpg')
-    const preview = request.previewDataUrl ? decodePreview(request.previewDataUrl) : null
+    const preview = request.previewDataUrl ? decodeJpegDataUrl(request.previewDataUrl) : null
     if (preview) await writeFile(previewPath, preview)
     else if (await pathExists(previewPath)) await unlink(previewPath)
     const project = parsePresentationDocument({
@@ -411,12 +455,20 @@ function configurePresentationHandlers(): void {
     const slides = project.slides.map((slide) => {
       const filePath = resolveProjectAsset(directory, slide.assetKey)
       const sourceKey = registerAssetPath(filePath)
-      return { ...slide, sourceKey, url: localAssetUrl(sourceKey) }
+      const url = localAssetUrl(sourceKey)
+      const thumbnailUrl = slide.posterKey
+        ? localAssetUrl(registerAssetPath(resolveProjectAsset(directory, slide.posterKey)))
+        : url
+      return { ...slide, sourceKey, url, thumbnailUrl }
     })
     const references = project.references.map((reference) => {
       const filePath = resolveProjectAsset(directory, reference.assetKey)
       const sourceKey = registerAssetPath(filePath)
-      return { ...reference, sourceKey, url: localAssetUrl(sourceKey) }
+      const url = localAssetUrl(sourceKey)
+      const thumbnailUrl = reference.posterKey
+        ? localAssetUrl(registerAssetPath(resolveProjectAsset(directory, reference.posterKey)))
+        : url
+      return { ...reference, sourceKey, url, thumbnailUrl }
     })
     const brand = project.brand
       ? (() => {
@@ -473,10 +525,10 @@ function configurePresentationHandlers(): void {
 
 function configureImportedAssetHandlers(): void {
   ipcMain.handle('asset:register', async (event, candidatePath: unknown) => {
-    if (!isTrustedRenderer(event)) throw new Error('Untrusted image request.')
+    if (!isTrustedRenderer(event)) throw new Error('Untrusted media request.')
     const filePath = validateAssetPath(candidatePath)
     const fileStats = await stat(filePath)
-    if (!fileStats.isFile()) throw new Error('The selected image is not a file.')
+    if (!fileStats.isFile()) throw new Error('The selected media is not a file.')
     return registerAssetPath(filePath)
   })
 
@@ -486,7 +538,7 @@ function configureImportedAssetHandlers(): void {
     }
 
     const currentPath = importedAssetPaths.get(sourceKey)
-    if (!currentPath) throw new Error('The original image is no longer available to rename.')
+    if (!currentPath) throw new Error('The original file is no longer available to rename.')
     const nextName = validateRenamedFileName(currentPath, candidateName)
     const nextPath = join(dirname(currentPath), nextName)
     if (nextPath === currentPath) return { name: nextName }

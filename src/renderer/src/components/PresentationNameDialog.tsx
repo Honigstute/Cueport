@@ -50,7 +50,7 @@ export function PresentationNameDialog({ initialName, mode, onCancel, onSubmit }
         <div className="rename-dialog-copy">
           <span className="eyebrow">Presentation</span>
           <h2 id="presentation-name-title">{title}</h2>
-          <p>{mode === 'save' ? 'Cueport keeps the compilation and its images together on this computer.' : 'The saved presentation card will use this name.'}</p>
+          <p>{mode === 'save' ? 'Cueport keeps the compilation and its media together on this computer.' : 'The saved presentation card will use this name.'}</p>
         </div>
         <label className="rename-field">
           <span>Presentation name</span>

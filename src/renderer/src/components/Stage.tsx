@@ -30,7 +30,7 @@ interface StageProps {
   isImporting: boolean
   canNavigateNext: boolean
   canNavigatePrevious: boolean
-  onChooseImages: () => void
+  onChooseMedia: () => void
   onNavigate: (direction: SlideNavigationDirection) => void
   onZoomChange: (zoom: number) => void
   onFitWidthChange: (slideId: string, width: number) => void
@@ -46,6 +46,27 @@ const ZOOM_ANCHOR_DURATION = 240
 const WINDOW_BAR_HEIGHT = 30
 
 type VisibleCanvasFrame = Exclude<CanvasFrame, 'none'>
+
+function ArtworkMedia({ slide, style }: { slide: SlideAsset; style?: React.CSSProperties }): React.JSX.Element {
+  if (slide.mimeType === 'video/mp4') {
+    return (
+      <video
+        aria-label={slide.name}
+        controls
+        draggable={false}
+        key={slide.id}
+        loop
+        playsInline
+        poster={slide.thumbnailUrl || undefined}
+        preload="metadata"
+        src={slide.url}
+        style={style}
+      />
+    )
+  }
+
+  return <img alt={slide.name} draggable={false} src={slide.url} style={style} />
+}
 
 /**
  * Frame chrome is deliberately rendered outside the viewport scroller. The
@@ -145,7 +166,7 @@ export function Stage({
   isImporting,
   canNavigateNext,
   canNavigatePrevious,
-  onChooseImages,
+  onChooseMedia,
   onNavigate,
   onZoomChange,
   onFitWidthChange
@@ -343,14 +364,7 @@ export function Stage({
     }
   }, [cancelZoomAnchor, isViewportActive, mode, onZoomChange, outerDrag.cancelMomentum, outerScrollElement, viewport.width, viewportDrag.cancelMomentum, zoom])
 
-  const artwork = slide ? (
-    <img
-      alt={slide.name}
-      draggable={false}
-      src={slide.url}
-      style={artworkStyle}
-    />
-  ) : null
+  const artwork = slide ? <ArtworkMedia slide={slide} style={artworkStyle} /> : null
 
   const framedArtwork = artwork && activeCanvasFrame !== 'none' ? (
     <div className={`artwork-window artwork-window-${activeCanvasFrame}`}>
@@ -367,7 +381,7 @@ export function Stage({
       aria-hidden="true"
       className="canvas-image-glow"
       draggable={false}
-      src={slide.url}
+      src={slide.mimeType === 'video/mp4' ? slide.thumbnailUrl : slide.url}
     />
   ) : null
 
@@ -399,7 +413,7 @@ export function Stage({
       } as React.CSSProperties}
     >
       {!slide ? (
-        <EmptyState isImporting={isImporting} onChooseImages={onChooseImages} />
+        <EmptyState isImporting={isImporting} onChooseMedia={onChooseMedia} />
       ) : (
         <>
           <div

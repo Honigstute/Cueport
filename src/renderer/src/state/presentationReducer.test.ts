@@ -10,6 +10,7 @@ function slide(id: string): SlideAsset {
     thumbnailUrl: `blob:${id}-thumbnail`,
     width: 1440,
     height: 2400,
+    mimeType: 'image/jpeg',
     origin: 'local',
     sourceKey: null
   }
