@@ -83,6 +83,10 @@ delete client links. Signed-in members can open shared presentations and use C
 or the comment button to join artwork-anchored discussions. Right-clicking the
 artwork offers **Create Comment** and **Place Reference** directly. A short click
 opens a discussion pin; its creator (or the owner) can drag it to a new point.
+Every signed-in account can change its own password from the account menu. The
+owner can create a single-use, seven-day password link for a new member or reset
+an existing member's forgotten password; completing either recovery signs out
+the account's older browser and desktop sessions.
 
 ## Deployment boundary
 

@@ -16,6 +16,7 @@ export type IconName =
   | 'home'
   | 'image'
   | 'layers'
+  | 'lock'
   | 'more'
   | 'palette'
   | 'play'
@@ -52,6 +53,7 @@ export function Icon({ name, size = 18, ...props }: IconProps): React.JSX.Elemen
     home: <><path d="m3 11 9-7 9 7" /><path d="M5.5 9.5V20h13V9.5M9.5 20v-6h5v6" /></>,
     image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 20" /></>,
     layers: <><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 16l9 5 9-5" /></>,
+    lock: <><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></>,
     more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,
     palette: <><path d="M12 3a9 9 0 1 0 0 18h1.5a1.7 1.7 0 0 0 0-3.4H12a1.6 1.6 0 0 1 0-3.2h2.5A6.5 6.5 0 0 0 21 8.1C21 4.7 16.8 3 12 3Z" /><circle cx="7.5" cy="9" r=".8" fill="currentColor" stroke="none" /><circle cx="10.5" cy="6.5" r=".8" fill="currentColor" stroke="none" /><circle cx="15" cy="6.7" r=".8" fill="currentColor" stroke="none" /></>,
     play: <><path d="m9 6 9 6-9 6Z" /></>,

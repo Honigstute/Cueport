@@ -53,9 +53,12 @@ Team workspaces, analytics, custom domains, live co-editing, and billing should 
 Cueport now has one protected owner plus invited member accounts. The owner can
 create, update, and remove members; PostgreSQL prevents the configured owner
 from being deleted, demoted, or renamed even if a future API route is wrong.
-Invitation URLs are single-use, expire after seven days, and let each member set
-their own password. Profiles contain the display name, optional title, and an
-optional compact JPEG/PNG/WebP avatar used beside comments.
+Password URLs are single-use, expire after seven days, and let each member set
+their initial password or recover a forgotten one. Issuing a new link invalidates
+every older unused link; redeeming it invalidates prior browser sessions and
+desktop credentials. Signed-in users can also change their own password after
+confirming the current one. Profiles contain the display name, optional title,
+and an optional compact JPEG/PNG/WebP avatar used beside comments.
 
 Published links require a signed-in Cueport account. Discussion threads belong
 to the presentation and a stable slide UUID. Their pin coordinates are stored

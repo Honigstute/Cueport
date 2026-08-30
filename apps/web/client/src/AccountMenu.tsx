@@ -3,10 +3,11 @@ import { Icon } from '../../../../src/renderer/src/components/Icon'
 import type { UserProfile } from './accountTypes'
 import { ProfileAvatar } from './ProfileAvatar'
 
-export function AccountMenu({ profile, onAccounts, onLogout, onProfile }: {
+export function AccountMenu({ profile, onAccounts, onLogout, onPassword, onProfile }: {
   profile: UserProfile
   onAccounts?: () => void
   onLogout: () => void
+  onPassword: () => void
   onProfile: () => void
 }): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -36,6 +37,7 @@ export function AccountMenu({ profile, onAccounts, onLogout, onProfile }: {
       {open && (
         <div className="account-popover" role="menu">
           <button onClick={() => { setOpen(false); onProfile() }} role="menuitem" type="button"><Icon name="user" size={15} /><span>Your Profile</span></button>
+          <button onClick={() => { setOpen(false); onPassword() }} role="menuitem" type="button"><Icon name="lock" size={15} /><span>Change Password</span></button>
           {onAccounts && <button onClick={() => { setOpen(false); onAccounts() }} role="menuitem" type="button"><Icon name="settings" size={15} /><span>Accounts</span></button>}
           <button onClick={() => { setOpen(false); onLogout() }} role="menuitem" type="button"><Icon name="arrow-left" size={15} /><span>Sign Out</span></button>
         </div>

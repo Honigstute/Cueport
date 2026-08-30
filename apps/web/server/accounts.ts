@@ -4,9 +4,9 @@ import type { Pool, PoolClient, QueryResultRow } from 'pg'
 import type { AuthenticatedUser } from './database'
 import { decodeAvatarDataUrl, normalizeDisplayName, normalizeProfileTitle } from './accountValidation'
 import { ApiError, jsonBody } from './http'
-import { createOpaqueToken, hashPassword, hashToken, normalizeEmail } from './security'
+import { createOpaqueToken, hashPassword, hashToken, normalizeEmail, verifyPassword } from './security'
 
-const INVITE_DAYS = 7
+const PASSWORD_LINK_DAYS = 7
 
 interface AccountRow extends AuthenticatedUser {
   created_at: Date
@@ -17,6 +17,7 @@ interface InviteRow extends QueryResultRow {
   email: string
   display_name: string
   expires_at: Date
+  password_hash: string | null
   used_at: Date | null
 }
 
@@ -89,13 +90,13 @@ async function loadAccount(pool: Pool, userId: string): Promise<AccountRow> {
 
 type DatabaseWriter = Pick<Pool | PoolClient, 'query'>
 
-async function createInvite(database: DatabaseWriter, publicUrl: string, userId: string, ownerId: string): Promise<string> {
+async function createPasswordLink(database: DatabaseWriter, publicUrl: string, userId: string, ownerId: string): Promise<string> {
   const token = createOpaqueToken()
   await database.query('DELETE FROM cueport_account_invites WHERE user_id = $1 AND used_at IS NULL', [userId])
   await database.query(
     `INSERT INTO cueport_account_invites (token_hash, user_id, created_by, expires_at)
      VALUES ($1, $2, $3, $4)`,
-    [hashToken(token), userId, ownerId, addDays(INVITE_DAYS)]
+    [hashToken(token), userId, ownerId, addDays(PASSWORD_LINK_DAYS)]
   )
   return `${publicUrl}/?activate=${encodeURIComponent(token)}`
 }
@@ -123,22 +124,27 @@ export function registerAccountRoutes({
   app.get('/api/auth/invite/:token', async (request) => {
     const { token } = request.params as { token: string }
     const result = await pool.query<InviteRow>(
-      `SELECT users.email, users.display_name, invites.expires_at, invites.used_at
+      `SELECT users.email, users.display_name, users.password_hash, invites.expires_at, invites.used_at
        FROM cueport_account_invites invites
        JOIN cueport_users users ON users.id = invites.user_id
        WHERE invites.token_hash = $1 AND users.deleted_at IS NULL`,
       [hashToken(token)]
     )
     const invite = result.rows[0]
-    if (!invite || invite.used_at || invite.expires_at <= new Date()) throw new ApiError(404, 'This account setup link is unavailable.')
-    return { email: invite.email, displayName: invite.display_name, expiresAt: invite.expires_at.toISOString() }
+    if (!invite || invite.used_at || invite.expires_at <= new Date()) throw new ApiError(404, 'This password link is unavailable.')
+    return {
+      active: Boolean(invite.password_hash),
+      email: invite.email,
+      displayName: invite.display_name,
+      expiresAt: invite.expires_at.toISOString()
+    }
   })
 
   app.post('/api/auth/activate', {
     config: { rateLimit: { max: 5, timeWindow: '15 minutes' } }
   }, async (request, reply) => {
     const body = jsonBody(request.body)
-    if (typeof body.token !== 'string') throw new ApiError(400, 'This account setup link is invalid.')
+    if (typeof body.token !== 'string') throw new ApiError(400, 'This password link is invalid.')
 
     // Reject random tokens before performing the intentionally expensive
     // password hash. The transaction below repeats this check under locks.
@@ -153,7 +159,7 @@ export function registerAccountRoutes({
          AND users.deleted_at IS NULL`,
       [tokenHash]
     )
-    if (!lookup.rows[0]) throw new ApiError(404, 'This account setup link is unavailable.')
+    if (!lookup.rows[0]) throw new ApiError(404, 'This password link is unavailable.')
 
     const passwordHash = await hashPassword(body.password).catch((error) => {
       throw new ApiError(400, error instanceof Error ? error.message : 'Choose a valid password.')
@@ -172,9 +178,9 @@ export function registerAccountRoutes({
         [tokenHash]
       )
       const invite = result.rows[0]
-      if (!invite || invite.used_at || invite.expires_at <= new Date()) throw new ApiError(404, 'This account setup link is unavailable.')
+      if (!invite || invite.used_at || invite.expires_at <= new Date()) throw new ApiError(404, 'This password link is unavailable.')
       await client.query('UPDATE cueport_users SET password_hash = $1, updated_at = now() WHERE id = $2', [passwordHash, invite.user_id])
-      // A setup link doubles as account recovery. Invalidate every prior login
+      // A password link doubles as account activation and recovery. Invalidate every prior login
       // and every outstanding link before issuing the fresh browser session.
       await client.query('DELETE FROM cueport_sessions WHERE user_id = $1', [invite.user_id])
       await client.query('DELETE FROM cueport_api_tokens WHERE user_id = $1', [invite.user_id])
@@ -227,7 +233,7 @@ export function registerAccountRoutes({
          VALUES ($1, $2, 'member', $3, $4, $5, $6, CASE WHEN $6::bytea IS NULL THEN NULL ELSE now() END)`,
         [userId, email, displayName, title, avatar?.mimeType ?? null, avatar?.data ?? null]
       )
-      setupUrl = await createInvite(client, publicUrl, userId, owner.id)
+      setupUrl = await createPasswordLink(client, publicUrl, userId, owner.id)
       await client.query('COMMIT')
     } catch (error) {
       await client.query('ROLLBACK')
@@ -275,26 +281,35 @@ export function registerAccountRoutes({
     return { account: accountResponse(await loadAccount(pool, userId)) }
   })
 
-  app.post('/api/accounts/:userId/invite', async (request) => {
+  const issuePasswordLink = async (request: FastifyRequest): Promise<string> => {
     const owner = await requireOwner(request)
     const { userId } = request.params as { userId: string }
     const account = await loadAccount(pool, userId)
-    if (account.is_protected) throw new ApiError(400, 'The owner account does not use an invitation link.')
+    if (account.is_protected) throw new ApiError(400, 'Change the owner password from the profile menu.')
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
-      // The account row is the serialization point: two simultaneous reset
-      // requests can never leave two usable setup links behind.
+      // The account row is the serialization point: two simultaneous requests
+      // can never leave two usable password links behind.
       await client.query('SELECT id FROM cueport_users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [userId])
-      const setupUrl = await createInvite(client, publicUrl, userId, owner.id)
+      const passwordUrl = await createPasswordLink(client, publicUrl, userId, owner.id)
       await client.query('COMMIT')
-      return { setupUrl }
+      return passwordUrl
     } catch (error) {
       await client.query('ROLLBACK')
       throw error
     } finally {
       client.release()
     }
+  }
+
+  app.post('/api/accounts/:userId/password-link', async (request) => {
+    return { passwordUrl: await issuePasswordLink(request) }
+  })
+
+  // Keep the original route compatible with already-open dashboard builds.
+  app.post('/api/accounts/:userId/invite', async (request) => {
+    return { setupUrl: await issuePasswordLink(request) }
   })
 
   app.delete('/api/accounts/:userId', async (request) => {
@@ -358,6 +373,48 @@ export function registerAccountRoutes({
       [displayName, title, avatar !== undefined, avatar?.mimeType ?? null, avatar?.data ?? null, user.id]
     )
     return { user: publicProfile(await loadAccount(pool, user.id)) }
+  })
+
+  app.post('/api/profile/password', {
+    config: { rateLimit: { max: 5, timeWindow: '15 minutes' } }
+  }, async (request, reply) => {
+    const user = await requireUser(request)
+    const body = jsonBody(request.body)
+    if (!(await verifyPassword(body.currentPassword, user.password_hash))) {
+      throw new ApiError(401, 'The current password is incorrect.')
+    }
+    if (body.currentPassword === body.newPassword) {
+      throw new ApiError(400, 'Choose a new password that is different from the current password.')
+    }
+    const passwordHash = await hashPassword(body.newPassword).catch((error) => {
+      throw new ApiError(400, error instanceof Error ? error.message : 'Choose a valid password.')
+    })
+
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const changed = await client.query<{ id: string }>(
+        `UPDATE cueport_users
+         SET password_hash = $1, updated_at = now()
+         WHERE id = $2 AND password_hash = $3 AND deleted_at IS NULL
+         RETURNING id`,
+        [passwordHash, user.id, user.password_hash]
+      )
+      if (!changed.rows[0]) throw new ApiError(409, 'The password changed in another session. Sign in again and retry.')
+      // A password change is also a credential-recovery boundary. Keep only
+      // the fresh browser session created after this transaction commits.
+      await client.query('DELETE FROM cueport_sessions WHERE user_id = $1', [user.id])
+      await client.query('DELETE FROM cueport_api_tokens WHERE user_id = $1', [user.id])
+      await client.query('UPDATE cueport_account_invites SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [user.id])
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+    await createSession(user.id, reply)
+    return { success: true }
   })
 
   app.get('/api/users/:userId/avatar', async (request, reply) => {

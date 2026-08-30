@@ -21,7 +21,7 @@ const EMPTY_DRAFT: AccountDraft = { displayName: '', email: '', title: '' }
 function AccountEditor({ account, onCancel, onSaved }: {
   account: AccountSummary | null
   onCancel: () => void
-  onSaved: (setupUrl?: string) => void
+  onSaved: (passwordUrl?: string) => void
 }): React.JSX.Element {
   const fileRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState<AccountDraft>(account ? {
@@ -88,7 +88,7 @@ function AccountEditor({ account, onCancel, onSaved }: {
 export function AccountManagerDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
   const [editing, setEditing] = useState<AccountSummary | 'new' | null>(null)
-  const [setupUrl, setSetupUrl] = useState<string | null>(null)
+  const [passwordUrl, setPasswordUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingDeletion, setPendingDeletion] = useState<AccountSummary | null>(null)
@@ -133,24 +133,27 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
     await refresh()
   }
 
-  const invite = async (account: AccountSummary): Promise<void> => {
+  const createPasswordLink = async (account: AccountSummary): Promise<void> => {
+    setPasswordUrl(null)
+    setCopied(false)
+    setError(null)
     try {
-      const result = await api<{ setupUrl: string }>(`/api/accounts/${account.id}/invite`, { method: 'POST', body: '{}' })
-      setSetupUrl(result.setupUrl)
+      const result = await api<{ passwordUrl: string }>(`/api/accounts/${account.id}/password-link`, { method: 'POST', body: '{}' })
+      setPasswordUrl(result.passwordUrl)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'A setup link could not be created.')
+      setError(cause instanceof Error ? cause.message : 'A password link could not be created.')
     }
   }
 
-  const copySetupUrl = async (): Promise<void> => {
-    if (!setupUrl) return
+  const copyPasswordUrl = async (): Promise<void> => {
+    if (!passwordUrl) return
     try {
-      await copyTextToClipboard(setupUrl)
+      await copyTextToClipboard(passwordUrl)
       setError(null)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1800)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The setup link could not be copied.')
+      setError(cause instanceof Error ? cause.message : 'The password link could not be copied.')
     }
   }
 
@@ -159,21 +162,21 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
       <section aria-labelledby="accounts-title" aria-modal="true" className="account-dialog accounts-dialog" onKeyDown={trapDialogFocus} role="dialog">
         <header className="account-dialog-header">
           <div><span className="eyebrow">Administration</span><h2 id="accounts-title">Accounts</h2></div>
-          <div className="account-dialog-header-actions"><button autoFocus className="web-primary" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setSetupUrl(null); setEditing('new') }} ref={addButtonRef} type="button"><Icon name="add" size={15} />Add account</button><button aria-label="Close accounts" className="icon-button" onClick={onClose} type="button"><Icon name="close" size={16} /></button></div>
+          <div className="account-dialog-header-actions"><button autoFocus className="web-primary" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setPasswordUrl(null); setCopied(false); setEditing('new') }} ref={addButtonRef} type="button"><Icon name="add" size={15} />Add account</button><button aria-label="Close accounts" className="icon-button" onClick={onClose} type="button"><Icon name="close" size={16} /></button></div>
         </header>
         {error && <p className="web-error" role="alert">{error}</p>}
-        {setupUrl && (
+        {passwordUrl && (
           <div className="setup-link-result">
-            <div><strong>Account setup link</strong><span>Send this private link to the account owner. It expires in seven days.</span></div>
-            <input aria-label="Account setup link" readOnly value={setupUrl} />
-            <button className="web-primary" onClick={() => void copySetupUrl()} type="button">{copied ? 'Copied' : 'Copy setup link'}</button>
+            <div><strong>Set or reset password link</strong><span>Send this single-use private link to the account owner. It expires in seven days and replaces every older password link.</span></div>
+            <input aria-label="Password link" readOnly value={passwordUrl} />
+            <button className="web-primary" onClick={() => void copyPasswordUrl()} type="button">{copied ? 'Copied' : 'Copy password link'}</button>
           </div>
         )}
         {editing ? (
           <AccountEditor
             account={editing === 'new' ? null : editing}
             onCancel={closeEditor}
-            onSaved={(url) => { closeEditor(); if (url) setSetupUrl(url); void refresh() }}
+            onSaved={(url) => { closeEditor(); if (url) { setPasswordUrl(url); setCopied(false) } void refresh() }}
           />
         ) : (
           <div className="account-list">
@@ -182,8 +185,13 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
                 <ProfileAvatar profile={account} size={44} />
                 <div className="account-row-copy"><strong>{account.displayName}</strong><span>{account.title || account.email}</span><small>{account.protected ? 'Owner' : account.active ? account.email : `${account.email} · Setup pending`}</small></div>
                 <div className="account-row-actions">
-                  <button aria-label={`Edit ${account.displayName}`} className="icon-button" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setSetupUrl(null); setEditing(account) }} title="Edit account" type="button"><Icon name="edit" size={15} /></button>
-                  {!account.protected && <button aria-label={`Create setup link for ${account.displayName}`} className="icon-button" onClick={() => void invite(account)} title="Create setup link" type="button"><Icon name="send" size={15} /></button>}
+                  <button aria-label={`Edit ${account.displayName}`} className="icon-button" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setPasswordUrl(null); setEditing(account) }} title="Edit account" type="button"><Icon name="edit" size={15} /></button>
+                  {!account.protected && (
+                    <button className="account-password-link" onClick={() => void createPasswordLink(account)} title={account.active ? 'Create password reset link' : 'Create password setup link'} type="button">
+                      <Icon name="lock" size={15} />
+                      <span>{account.active ? 'Reset password' : 'Setup password'}</span>
+                    </button>
+                  )}
                   {!account.protected && <button aria-label={`Delete ${account.displayName}`} className="icon-button account-delete" onClick={() => setPendingDeletion(account)} title="Delete account" type="button"><Icon name="remove" size={15} /></button>}
                 </div>
               </article>

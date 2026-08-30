@@ -761,6 +761,67 @@
 .account-row-actions .icon-button:hover { background: var(--ui-hover); }
 .account-row-actions .account-delete { color: var(--error); }
 
+.account-password-link {
+  align-items: center;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--ui-text-muted);
+  display: inline-flex;
+  gap: 7px;
+  height: 40px;
+  padding: 0 10px;
+  transition-property: background-color, color, scale;
+}
+
+.account-password-link:hover {
+  background: var(--ui-hover);
+  color: var(--ui-text);
+}
+
+.account-password-link:active { scale: 0.96; }
+
+.password-dialog {
+  width: min(460px, calc(100vw - 32px));
+}
+
+.password-dialog-copy {
+  color: var(--ui-text-muted);
+  line-height: 1.55;
+  margin: var(--space-4) 0 0;
+  text-wrap: pretty;
+}
+
+.password-fields {
+  border-bottom: 1px solid var(--ui-outline);
+  margin-top: var(--space-5);
+  padding-bottom: var(--space-5);
+}
+
+.password-result-icon {
+  align-items: center;
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--success);
+  display: flex;
+  height: 40px;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+  width: 40px;
+}
+
+.password-dialog > h2 {
+  color: var(--ui-text);
+  font-size: var(--text-primary);
+  margin: 0;
+  text-wrap: balance;
+}
+
+.password-dialog .account-dialog-actions button {
+  transition-property: background-color, color, opacity, scale;
+}
+
+.password-dialog .account-dialog-actions button:active:not(:disabled) { scale: 0.96; }
+
 .account-editor {
   margin-top: var(--space-5);
 }

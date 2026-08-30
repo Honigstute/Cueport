@@ -10,6 +10,7 @@ import { ViewerControls } from './ViewerControls'
 import { AccountManagerDialog } from './AccountManagerDialog'
 import { AccountMenu } from './AccountMenu'
 import { CommentLayer, type CommentLayerHandle } from './CommentLayer'
+import { ChangePasswordDialog } from './ChangePasswordDialog'
 import { ConfirmationDialog } from './ConfirmationDialog'
 import { ProfileDialog } from './ProfileDialog'
 import { api } from './api'
@@ -47,6 +48,7 @@ function AccountForm({ mode, token, onSuccess }: {
 }): React.JSX.Element {
   const [email, setEmail] = useState('')
   const [invitedName, setInvitedName] = useState('')
+  const [existingAccount, setExistingAccount] = useState(false)
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -55,13 +57,14 @@ function AccountForm({ mode, token, onSuccess }: {
   useEffect(() => {
     if (mode !== 'activate' || !token) return
     let active = true
-    api<{ email: string; displayName: string }>(`/api/auth/invite/${encodeURIComponent(token)}`)
+    api<{ active: boolean; email: string; displayName: string }>(`/api/auth/invite/${encodeURIComponent(token)}`)
       .then((invite) => {
         if (!active) return
         setEmail(invite.email)
         setInvitedName(invite.displayName)
+        setExistingAccount(invite.active)
       })
-      .catch((cause) => active && setError(cause instanceof Error ? cause.message : 'This account setup link is unavailable.'))
+      .catch((cause) => active && setError(cause instanceof Error ? cause.message : 'This password link is unavailable.'))
     return () => { active = false }
   }, [mode, token])
 
@@ -93,11 +96,17 @@ function AccountForm({ mode, token, onSuccess }: {
       <Brand />
       <form className="account-card" onSubmit={(event) => void submit(event)}>
         <span className="web-eyebrow">Cueport account</span>
-        <h1>{mode === 'setup' ? 'Create your owner password' : mode === 'activate' ? `Welcome${invitedName ? `, ${invitedName}` : ''}` : 'Sign in to Cueport'}</h1>
+        <h1>{mode === 'setup'
+          ? 'Create your owner password'
+          : mode === 'activate'
+            ? existingAccount ? 'Choose a new password' : `Welcome${invitedName ? `, ${invitedName}` : ''}`
+            : 'Sign in to Cueport'}</h1>
         <p>{mode === 'setup'
           ? 'This finishes the protected owner account on your server.'
           : mode === 'activate'
-            ? `Create a password for ${email || 'your invited account'}.`
+            ? existingAccount
+              ? `Replace the password for ${email || 'your Cueport account'}.`
+              : `Create a password for ${email || 'your invited account'}.`
             : 'Open private presentations and join discussions.'}</p>
         {mode === 'login' && (
           <label>
@@ -124,7 +133,7 @@ function AccountForm({ mode, token, onSuccess }: {
         )}
         {error && <p className="web-error" role="alert">{error}</p>}
         <button className="web-primary" disabled={busy} type="submit">
-          {busy ? 'Please wait…' : mode === 'setup' ? 'Create owner account' : mode === 'activate' ? 'Activate account' : 'Sign in'}
+          {busy ? 'Please wait…' : mode === 'setup' ? 'Create owner account' : mode === 'activate' ? existingAccount ? 'Save new password' : 'Activate account' : 'Sign in'}
         </button>
       </form>
     </main>
@@ -143,6 +152,7 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
   const [copyMessage, setCopyMessage] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<{
     presentation: PublishedPresentation
     type: 'delete' | 'take-offline'
@@ -202,7 +212,7 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
     <main className="dashboard-screen">
       <header className="dashboard-header">
         <Brand />
-        <AccountMenu onAccounts={() => setAccountsOpen(true)} onLogout={onLogout} onProfile={() => setProfileOpen(true)} profile={profile} />
+        <AccountMenu onAccounts={() => setAccountsOpen(true)} onLogout={onLogout} onPassword={() => setPasswordOpen(true)} onProfile={() => setProfileOpen(true)} profile={profile} />
       </header>
       <section className="dashboard-content">
         {error && <p className="web-error" role="alert">{error}</p>}
@@ -233,6 +243,7 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
       </section>
       {profileOpen && <ProfileDialog onClose={() => setProfileOpen(false)} onSaved={onProfileChange} profile={profile} />}
       {accountsOpen && <AccountManagerDialog onClose={() => setAccountsOpen(false)} />}
+      {passwordOpen && <ChangePasswordDialog onClose={() => setPasswordOpen(false)} />}
       {pendingAction && (
         <ConfirmationDialog
           confirmLabel={pendingAction.type === 'delete' ? 'Delete presentation' : 'Take link offline'}
@@ -258,11 +269,12 @@ function MemberHome({ onLogout, onProfileChange, profile }: {
   profile: UserProfile
 }): React.JSX.Element {
   const [profileOpen, setProfileOpen] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
   return (
     <main className="dashboard-screen member-home">
       <header className="dashboard-header">
         <Brand />
-        <AccountMenu onLogout={onLogout} onProfile={() => setProfileOpen(true)} profile={profile} />
+        <AccountMenu onLogout={onLogout} onPassword={() => setPasswordOpen(true)} onProfile={() => setProfileOpen(true)} profile={profile} />
       </header>
       <section className="member-home-message">
         <Icon name="layers" size={24} />
@@ -270,6 +282,7 @@ function MemberHome({ onLogout, onProfileChange, profile }: {
         <span>Your Cueport account is ready. Use a link shared by the presentation owner to view layouts and join discussions.</span>
       </section>
       {profileOpen && <ProfileDialog onClose={() => setProfileOpen(false)} onSaved={onProfileChange} profile={profile} />}
+      {passwordOpen && <ChangePasswordDialog onClose={() => setPasswordOpen(false)} />}
     </main>
   )
 }

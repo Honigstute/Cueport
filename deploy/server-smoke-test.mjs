@@ -137,16 +137,57 @@ try {
 
     const activationToken = new URL(createdAccount.setupUrl).searchParams.get('activate')
     assert.ok(activationToken)
+    const initialPassword = `Smoke-${randomBytes(24).toString('base64url')}`
     const activation = await fetch(`${baseUrl}/api/auth/activate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: activationToken, password: `Smoke-${randomBytes(24).toString('base64url')}` })
+      body: JSON.stringify({ token: activationToken, password: initialPassword })
     })
     const activated = await json(activation)
     assert.equal(activated.user.role, 'member')
     const memberCookie = activation.headers.get('set-cookie')?.split(';')[0]
     assert.ok(memberCookie)
-    const memberHeaders = { Cookie: memberCookie, Origin: publicUrl }
+    let memberHeaders = { Cookie: memberCookie, Origin: publicUrl }
+
+    const passwordLink = await json(await fetch(`${baseUrl}/api/accounts/${createdAccount.account.id}/password-link`, {
+      method: 'POST',
+      headers
+    }))
+    const passwordToken = new URL(passwordLink.passwordUrl).searchParams.get('activate')
+    assert.ok(passwordToken)
+    const passwordLinkDetails = await json(await fetch(`${baseUrl}/api/auth/invite/${encodeURIComponent(passwordToken)}`))
+    assert.equal(passwordLinkDetails.active, true)
+    const resetPassword = `Reset-${randomBytes(24).toString('base64url')}`
+    const reset = await fetch(`${baseUrl}/api/auth/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: passwordToken, password: resetPassword })
+    })
+    await json(reset)
+    const resetCookie = reset.headers.get('set-cookie')?.split(';')[0]
+    assert.ok(resetCookie)
+    const staleActivationSession = await json(await fetch(`${baseUrl}/api/session`, { headers: { Cookie: memberCookie } }))
+    assert.equal(staleActivationSession.authenticated, false)
+    memberHeaders = { Cookie: resetCookie, Origin: publicUrl }
+
+    const wrongCurrentPassword = await fetch(`${baseUrl}/api/profile/password`, {
+      method: 'POST',
+      headers: { ...memberHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'incorrect password', newPassword: `Unused-${randomBytes(24).toString('base64url')}` })
+    })
+    assert.equal(wrongCurrentPassword.status, 401)
+    const changedPassword = `Changed-${randomBytes(24).toString('base64url')}`
+    const passwordChange = await fetch(`${baseUrl}/api/profile/password`, {
+      method: 'POST',
+      headers: { ...memberHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: resetPassword, newPassword: changedPassword })
+    })
+    await json(passwordChange)
+    const changedCookie = passwordChange.headers.get('set-cookie')?.split(';')[0]
+    assert.ok(changedCookie)
+    const staleResetSession = await json(await fetch(`${baseUrl}/api/session`, { headers: { Cookie: resetCookie } }))
+    assert.equal(staleResetSession.authenticated, false)
+    memberHeaders = { Cookie: changedCookie, Origin: publicUrl }
 
     const ownerOnlyThread = await json(await fetch(discussionBase, {
       method: 'POST',
