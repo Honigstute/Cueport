@@ -159,6 +159,16 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
     await refresh()
   }
 
+  const takeOffline = async (presentation: PublishedPresentation): Promise<void> => {
+    if (!confirm(`Take the private link for “${presentation.name}” offline? Anyone using it will lose access until you publish the presentation again.`)) return
+    try {
+      await api(`/api/presentations/${presentation.id}/revoke`, { method: 'POST', body: '{}' })
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The private link could not be taken offline.')
+    }
+  }
+
   const copy = async (presentation: PublishedPresentation): Promise<void> => {
     if (!presentation.shareUrl) return
     setCopyMessage(null)
@@ -186,14 +196,6 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
         </div>
       </header>
       <section className="dashboard-content">
-        <div className="dashboard-heading">
-          <div>
-            <span className="web-eyebrow">Private publishing</span>
-            <h1>Presentations</h1>
-            <p>Publish or update a presentation from the Cueport desktop app.</p>
-          </div>
-          <button className="web-secondary" onClick={() => void refresh()} type="button">Refresh</button>
-        </div>
         {error && <p className="web-error" role="alert">{error}</p>}
         {copyMessage && <p className={copiedId ? 'web-notice' : 'web-error'} role="status">{copyMessage}</p>}
         {loading ? (
@@ -213,6 +215,7 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
                 onCopy={(item) => void copy(item)}
                 onDelete={(item) => void remove(item)}
                 onRename={rename}
+                onTakeOffline={(item) => void takeOffline(item)}
                 presentation={presentation}
               />
             ))}

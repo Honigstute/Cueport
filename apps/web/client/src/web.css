@@ -112,7 +112,6 @@
 }
 
 .account-card h1,
-.dashboard-heading h1,
 .share-message h1 {
   color: var(--ui-text);
   font-size: clamp(24px, 4vw, 38px);
@@ -123,7 +122,6 @@
 }
 
 .account-card > p,
-.dashboard-heading p,
 .share-message p {
   color: var(--ui-text-muted);
   line-height: 1.55;
@@ -237,17 +235,6 @@
   padding: 56px clamp(20px, 5vw, 64px) 80px;
 }
 
-.dashboard-heading {
-  align-items: flex-end;
-  display: flex;
-  gap: 24px;
-  justify-content: space-between;
-  margin-bottom: 34px;
-}
-
-.dashboard-heading > div { display: grid; gap: 12px; }
-.dashboard-heading p { margin: 0; }
-
 .dashboard-empty {
   align-items: center;
   border: 1px dashed var(--ui-outline);
@@ -331,6 +318,5 @@
 
 @media (max-width: 620px) {
   .dashboard-header > div:last-child > span { display: none; }
-  .dashboard-heading { align-items: flex-start; flex-direction: column; }
   .publication-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 }

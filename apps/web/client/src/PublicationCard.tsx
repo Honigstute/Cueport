@@ -18,6 +18,7 @@ interface PublicationCardProps {
   onCopy: (presentation: PublishedPresentation) => void
   onDelete: (presentation: PublishedPresentation) => void
   onRename: (presentation: PublishedPresentation, name: string) => Promise<void>
+  onTakeOffline: (presentation: PublishedPresentation) => void
 }
 
 function formatPublishedDate(timestamp: string): string {
@@ -92,7 +93,8 @@ export function PublicationCard({
   presentation,
   onCopy,
   onDelete,
-  onRename
+  onRename,
+  onTakeOffline
 }: PublicationCardProps): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -153,6 +155,16 @@ export function PublicationCard({
                   <Icon name="edit" size={15} />
                   <span>Rename presentation</span>
                 </button>
+                {presentation.shareUrl && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onTakeOffline(presentation) }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Icon name="eye-off" size={15} />
+                    <span>Take link offline</span>
+                  </button>
+                )}
                 <button
                   className="danger"
                   onClick={() => { setMenuOpen(false); onDelete(presentation) }}
