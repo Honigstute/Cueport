@@ -5,6 +5,7 @@ import { commentAnchorFromClientPoint, moveCommentAnchor, type NormalizedComment
 import { api } from './api'
 import { CommentBody } from './commentLinks'
 import type { DiscussionComment, DiscussionThread } from './commentTypes'
+import { ConfirmationDialog } from './ConfirmationDialog'
 import { ProfileAvatar } from './ProfileAvatar'
 
 interface PanelAnchor {
@@ -97,14 +98,17 @@ function DiscussionPanel({
   const [body, setBody] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editBody, setEditBody] = useState('')
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false)
   const submissionIdRef = useRef(crypto.randomUUID())
   const style = usePanelPosition(anchor, panelRef)
 
   useEffect(() => {
     const outside = (event: PointerEvent): void => {
+      if (deleteConfirmationOpen) return
       if (!(event.target instanceof Node) || !panelRef.current?.contains(event.target)) onClose()
     }
     const escape = (event: KeyboardEvent): void => {
+      if (deleteConfirmationOpen) return
       if (event.key === 'Escape') {
         event.preventDefault()
         onClose()
@@ -116,7 +120,7 @@ function DiscussionPanel({
       window.removeEventListener('pointerdown', outside, true)
       window.removeEventListener('keydown', escape, true)
     }
-  }, [onClose])
+  }, [deleteConfirmationOpen, onClose])
 
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
@@ -131,12 +135,12 @@ function DiscussionPanel({
     }
   }
 
-  return createPortal(
+  const panel = createPortal(
     <aside aria-label={draft ? 'New discussion' : 'Discussion'} className="discussion-panel" data-no-pan ref={panelRef} style={style}>
       <header className="discussion-header">
         <div><strong>{draft ? 'New discussion' : 'Discussion'}</strong>{thread && <span>{thread.comments.length}</span>}</div>
         <div>
-          {thread?.canDelete && <button aria-label="Delete discussion" className="icon-button discussion-delete-thread" onClick={() => void onDeleteThread().catch(() => undefined)} title="Delete discussion" type="button"><Icon name="remove" size={15} /></button>}
+          {thread?.canDelete && <button aria-label="Delete discussion" className="icon-button discussion-delete-thread" onClick={() => setDeleteConfirmationOpen(true)} title="Delete discussion" type="button"><Icon name="remove" size={15} /></button>}
           <button aria-label="Close discussion" className="icon-button" onClick={onClose} type="button"><Icon name="close" size={15} /></button>
         </div>
       </header>
@@ -171,6 +175,23 @@ function DiscussionPanel({
       </form>
     </aside>,
     document.body
+  )
+
+  return (
+    <>
+      {panel}
+      {deleteConfirmationOpen && (
+        <ConfirmationDialog
+          confirmLabel="Delete discussion"
+          description="The complete discussion and every comment inside it will be permanently deleted."
+          errorMessage="The discussion could not be deleted."
+          eyebrow="Delete discussion"
+          onClose={() => setDeleteConfirmationOpen(false)}
+          onConfirm={onDeleteThread}
+          title="Delete this discussion?"
+        />
+      )}
+    </>
   )
 }
 
@@ -441,7 +462,7 @@ export const CommentLayer = forwardRef<CommentLayerHandle, CommentLayerProps>(fu
             if (result.threadDeleted) close()
           }}
           onDeleteThread={async () => {
-            if (!activeThread || !confirm('Delete this entire discussion and every comment in it?')) return
+            if (!activeThread) return
             await mutate(() => api<{ discussions: DiscussionThread[] }>(`/api/share/${encodeURIComponent(shareToken)}/discussions/${activeThread.id}`, { method: 'DELETE', body: '{}' }))
             close()
           }}

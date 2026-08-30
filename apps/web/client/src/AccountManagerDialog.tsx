@@ -5,6 +5,7 @@ import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
 import { api } from './api'
 import type { AccountSummary } from './accountTypes'
 import { prepareAvatarDataUrl } from './avatar'
+import { ConfirmationDialog } from './ConfirmationDialog'
 import { trapDialogFocus } from './dialogFocus'
 import { ProfileAvatar } from './ProfileAvatar'
 
@@ -90,6 +91,7 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
   const [setupUrl, setSetupUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingDeletion, setPendingDeletion] = useState<AccountSummary | null>(null)
   const addButtonRef = useRef<HTMLButtonElement>(null)
   const editorReturnFocusRef = useRef<HTMLButtonElement | null>(null)
 
@@ -118,21 +120,17 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
   useEffect(() => {
     const close = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      if (pendingDeletion) return
       if (editing) closeEditor()
       else onClose()
     }
     window.addEventListener('keydown', close)
     return () => window.removeEventListener('keydown', close)
-  }, [closeEditor, editing, onClose])
+  }, [closeEditor, editing, onClose, pendingDeletion])
 
   const remove = async (account: AccountSummary): Promise<void> => {
-    if (!confirm(`Delete the account for ${account.displayName}? Their previous comments will remain as “Deleted account”.`)) return
-    try {
-      await api(`/api/accounts/${account.id}`, { method: 'DELETE', body: '{}' })
-      await refresh()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The account could not be deleted.')
-    }
+    await api(`/api/accounts/${account.id}`, { method: 'DELETE', body: '{}' })
+    await refresh()
   }
 
   const invite = async (account: AccountSummary): Promise<void> => {
@@ -156,8 +154,8 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
     }
   }
 
-  return createPortal(
-    <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !editing && onClose()}>
+  const managerDialog = createPortal(
+    <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !editing && !pendingDeletion && onClose()}>
       <section aria-labelledby="accounts-title" aria-modal="true" className="account-dialog accounts-dialog" onKeyDown={trapDialogFocus} role="dialog">
         <header className="account-dialog-header">
           <div><span className="eyebrow">Administration</span><h2 id="accounts-title">Accounts</h2></div>
@@ -186,7 +184,7 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
                 <div className="account-row-actions">
                   <button aria-label={`Edit ${account.displayName}`} className="icon-button" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setSetupUrl(null); setEditing(account) }} title="Edit account" type="button"><Icon name="edit" size={15} /></button>
                   {!account.protected && <button aria-label={`Create setup link for ${account.displayName}`} className="icon-button" onClick={() => void invite(account)} title="Create setup link" type="button"><Icon name="send" size={15} /></button>}
-                  {!account.protected && <button aria-label={`Delete ${account.displayName}`} className="icon-button account-delete" onClick={() => void remove(account)} title="Delete account" type="button"><Icon name="remove" size={15} /></button>}
+                  {!account.protected && <button aria-label={`Delete ${account.displayName}`} className="icon-button account-delete" onClick={() => setPendingDeletion(account)} title="Delete account" type="button"><Icon name="remove" size={15} /></button>}
                 </div>
               </article>
             ))}
@@ -195,5 +193,22 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
       </section>
     </div>,
     document.body
+  )
+
+  return (
+    <>
+      {managerDialog}
+      {pendingDeletion && (
+        <ConfirmationDialog
+          confirmLabel="Delete account"
+          description={`${pendingDeletion.displayName} will lose access. Their previous comments will remain visible as “Deleted account”.`}
+          errorMessage="The account could not be deleted."
+          eyebrow="Delete account"
+          onClose={() => setPendingDeletion(null)}
+          onConfirm={() => remove(pendingDeletion)}
+          title={`Delete ${pendingDeletion.displayName}?`}
+        />
+      )}
+    </>
   )
 }

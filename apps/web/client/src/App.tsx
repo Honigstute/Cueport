@@ -10,6 +10,7 @@ import { ViewerControls } from './ViewerControls'
 import { AccountManagerDialog } from './AccountManagerDialog'
 import { AccountMenu } from './AccountMenu'
 import { CommentLayer, type CommentLayerHandle } from './CommentLayer'
+import { ConfirmationDialog } from './ConfirmationDialog'
 import { ProfileDialog } from './ProfileDialog'
 import { api } from './api'
 import type { SessionResponse, UserProfile } from './accountTypes'
@@ -142,6 +143,10 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
   const [copyMessage, setCopyMessage] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{
+    presentation: PublishedPresentation
+    type: 'delete' | 'take-offline'
+  } | null>(null)
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -159,7 +164,6 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
   useEffect(() => { void refresh() }, [refresh])
 
   const remove = async (presentation: PublishedPresentation): Promise<void> => {
-    if (!confirm(`Permanently delete “${presentation.name}” and all uploaded revisions?`)) return
     await api(`/api/presentations/${presentation.id}`, { method: 'DELETE', body: '{}' })
     await refresh()
   }
@@ -173,13 +177,8 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
   }
 
   const takeOffline = async (presentation: PublishedPresentation): Promise<void> => {
-    if (!confirm(`Take the private link for “${presentation.name}” offline? Anyone using it will lose access until you publish the presentation again.`)) return
-    try {
-      await api(`/api/presentations/${presentation.id}/revoke`, { method: 'POST', body: '{}' })
-      await refresh()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The private link could not be taken offline.')
-    }
+    await api(`/api/presentations/${presentation.id}/revoke`, { method: 'POST', body: '{}' })
+    await refresh()
   }
 
   const copy = async (presentation: PublishedPresentation): Promise<void> => {
@@ -223,9 +222,9 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
                 copied={copiedId === presentation.id}
                 key={presentation.id}
                 onCopy={(item) => void copy(item)}
-                onDelete={(item) => void remove(item)}
+                onDelete={(item) => setPendingAction({ presentation: item, type: 'delete' })}
                 onRename={rename}
-                onTakeOffline={(item) => void takeOffline(item)}
+                onTakeOffline={(item) => setPendingAction({ presentation: item, type: 'take-offline' })}
                 presentation={presentation}
               />
             ))}
@@ -234,6 +233,21 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
       </section>
       {profileOpen && <ProfileDialog onClose={() => setProfileOpen(false)} onSaved={onProfileChange} profile={profile} />}
       {accountsOpen && <AccountManagerDialog onClose={() => setAccountsOpen(false)} />}
+      {pendingAction && (
+        <ConfirmationDialog
+          confirmLabel={pendingAction.type === 'delete' ? 'Delete presentation' : 'Take link offline'}
+          description={pendingAction.type === 'delete'
+            ? `“${pendingAction.presentation.name}” and every uploaded revision will be permanently deleted.`
+            : `Anyone using the private link for “${pendingAction.presentation.name}” will lose access until you publish it again.`}
+          errorMessage={pendingAction.type === 'delete' ? 'The presentation could not be deleted.' : 'The private link could not be taken offline.'}
+          eyebrow={pendingAction.type === 'delete' ? 'Delete presentation' : 'Private link'}
+          icon={pendingAction.type === 'delete' ? 'remove' : 'eye-off'}
+          onClose={() => setPendingAction(null)}
+          onConfirm={() => pendingAction.type === 'delete' ? remove(pendingAction.presentation) : takeOffline(pendingAction.presentation)}
+          title={pendingAction.type === 'delete' ? 'Delete this presentation?' : 'Take this link offline?'}
+          tone={pendingAction.type === 'delete' ? 'danger' : 'primary'}
+        />
+      )}
     </main>
   )
 }
