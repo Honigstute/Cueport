@@ -64,6 +64,12 @@ canvas gutter, frame bezel, or viewport—so fit-width, zoom, and responsive
 layouts cannot move the logical point. Thread creation plus its first comment,
 and final-comment removal plus thread cleanup, are transactional.
 
+The artwork context menu exposes both comment creation and temporary reference
+placement without requiring comment mode first. Selecting Create Comment turns
+comments on and opens the composer at that source-relative point. Pin movement
+uses a drag threshold so a click still opens the discussion; only the thread
+creator or the protected owner may persist a new position.
+
 Members may edit or delete their own comments. The owner may delete any comment
 or an entire thread. Comment author names and titles are snapshotted for audit
 history; deleted members appear as “Deleted account” while their old discussion

@@ -455,8 +455,19 @@
   display: flex;
   gap: 9px;
   height: 40px;
-  padding: 0 10px;
+  justify-content: flex-start;
+  padding: 0 8px;
+  text-align: left;
   width: 100%;
+}
+
+.account-popover button > svg {
+  flex: 0 0 18px;
+}
+
+.account-popover button > span {
+  flex: 1;
+  min-width: 0;
 }
 
 .account-popover button:hover,
@@ -702,6 +713,7 @@
   padding: 0 6px;
   position: absolute;
   transform: translate(-50%, -50%);
+  user-select: none;
   z-index: 2;
 }
 
@@ -718,6 +730,8 @@
 .comment-pin:hover { background: var(--ui-hover); }
 .comment-pin[data-active="true"],
 .comment-pin-draft { background: var(--ui-active); border-color: var(--ui-active); }
+.comment-pin[data-movable="true"] { cursor: grab; touch-action: none; }
+.comment-pin[data-dragging="true"] { cursor: grabbing; }
 
 .discussion-panel {
   background: var(--ui-background);

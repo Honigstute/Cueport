@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
-import { commentAnchorFromClientPoint, type NormalizedCommentAnchor } from '../../../../src/renderer/src/lib/commentAnchors'
+import { commentAnchorFromClientPoint, moveCommentAnchor, type NormalizedCommentAnchor } from '../../../../src/renderer/src/lib/commentAnchors'
 import { api } from './api'
 import { CommentBody } from './commentLinks'
 import type { DiscussionComment, DiscussionThread } from './commentTypes'
@@ -11,6 +11,18 @@ interface PanelAnchor {
   element?: HTMLElement
   point: { x: number; y: number }
 }
+
+export interface CommentLayerHandle {
+  openComposerAt: (clientX: number, clientY: number) => boolean
+}
+
+interface CommentLayerProps {
+  enabled: boolean
+  shareToken: string
+  slideId: string
+}
+
+const PIN_DRAG_THRESHOLD = 4
 
 function formatCommentTime(timestamp: string): string {
   const value = new Date(timestamp)
@@ -162,11 +174,10 @@ function DiscussionPanel({
   )
 }
 
-export function CommentLayer({ enabled, shareToken, slideId }: {
-  enabled: boolean
-  shareToken: string
-  slideId: string
-}): React.JSX.Element {
+export const CommentLayer = forwardRef<CommentLayerHandle, CommentLayerProps>(function CommentLayer(
+  { enabled, shareToken, slideId },
+  forwardedRef
+): React.JSX.Element {
   const [threads, setThreads] = useState<DiscussionThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [draft, setDraft] = useState<NormalizedCommentAnchor | null>(null)
@@ -174,16 +185,36 @@ export function CommentLayer({ enabled, shareToken, slideId }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draftPinElement, setDraftPinElement] = useState<HTMLSpanElement | null>(null)
+  const [draggingThreadId, setDraggingThreadId] = useState<string | null>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
   const pinElementsRef = useRef(new Map<string, HTMLButtonElement>())
+  const dragCleanupRef = useRef<(() => void) | null>(null)
+  const draggingThreadIdRef = useRef<string | null>(null)
+  const suppressedClickThreadRef = useRef<string | null>(null)
+  const suppressClickTimerRef = useRef<number | null>(null)
   const activeThread = useMemo(() => threads.find((thread) => thread.id === activeThreadId) ?? null, [activeThreadId, threads])
   const slideThreads = useMemo(() => threads.filter((thread) => thread.slideId === slideId), [slideId, threads])
 
   const load = useCallback(async (): Promise<DiscussionThread[]> => {
     const result = await api<{ discussions: DiscussionThread[] }>(`/api/share/${encodeURIComponent(shareToken)}/discussions`)
-    setThreads(result.discussions)
+    if (!draggingThreadIdRef.current) setThreads(result.discussions)
     setError(null)
     return result.discussions
   }, [shareToken])
+
+  const openComposerAt = useCallback((clientX: number, clientY: number): boolean => {
+    const bounds = layerRef.current?.getBoundingClientRect()
+    if (!bounds) return false
+    const anchor = commentAnchorFromClientPoint(clientX, clientY, bounds)
+    if (!anchor) return false
+    setActiveThreadId(null)
+    setDraft(anchor)
+    setPanelAnchor({ point: { x: clientX, y: clientY } })
+    setError(null)
+    return true
+  }, [])
+
+  useImperativeHandle(forwardedRef, () => ({ openComposerAt }), [openComposerAt])
 
   const close = useCallback((): void => {
     setActiveThreadId(null)
@@ -204,6 +235,11 @@ export function CommentLayer({ enabled, shareToken, slideId }: {
   }, [close, enabled, load])
 
   useEffect(() => close(), [close, slideId])
+
+  useEffect(() => () => {
+    dragCleanupRef.current?.()
+    if (suppressClickTimerRef.current !== null) window.clearTimeout(suppressClickTimerRef.current)
+  }, [])
 
   // Another participant or the owner may remove the open discussion between
   // polls. Close all local anchor state with it rather than leaving a ghost UI.
@@ -269,6 +305,84 @@ export function CommentLayer({ enabled, shareToken, slideId }: {
     setPanelAnchor({ element, point: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } })
   }
 
+  const beginPinInteraction = (event: React.PointerEvent<HTMLButtonElement>, thread: DiscussionThread): void => {
+    if (!event.isPrimary || event.button !== 0 || !thread.canMove) return
+    event.stopPropagation()
+    const bounds = layerRef.current?.getBoundingClientRect()
+    if (!bounds) return
+    dragCleanupRef.current?.()
+    const origin = { x: thread.x, y: thread.y }
+    const pointerId = event.pointerId
+    const startX = event.clientX
+    const startY = event.clientY
+    let dragged = false
+    let latest = origin
+
+    const cleanup = (): void => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', complete)
+      window.removeEventListener('pointercancel', cancel)
+      dragCleanupRef.current = null
+    }
+    const restore = (): void => {
+      draggingThreadIdRef.current = null
+      setDraggingThreadId(null)
+      setThreads((current) => current.map((candidate) => candidate.id === thread.id ? { ...candidate, ...origin } : candidate))
+    }
+    const move = (pointerEvent: PointerEvent): void => {
+      if (pointerEvent.pointerId !== pointerId) return
+      const deltaX = pointerEvent.clientX - startX
+      const deltaY = pointerEvent.clientY - startY
+      if (!dragged && Math.hypot(deltaX, deltaY) < PIN_DRAG_THRESHOLD) return
+      pointerEvent.preventDefault()
+      if (!dragged) {
+        dragged = true
+        draggingThreadIdRef.current = thread.id
+        setDraggingThreadId(thread.id)
+        setActiveThreadId(null)
+        setPanelAnchor(null)
+      }
+      const moved = moveCommentAnchor(origin, deltaX, deltaY, bounds)
+      if (!moved) return
+      latest = moved
+      setThreads((current) => current.map((candidate) => candidate.id === thread.id ? { ...candidate, ...moved } : candidate))
+    }
+    const complete = (pointerEvent: PointerEvent): void => {
+      if (pointerEvent.pointerId !== pointerId) return
+      cleanup()
+      if (!dragged) return
+      suppressedClickThreadRef.current = thread.id
+      if (suppressClickTimerRef.current !== null) window.clearTimeout(suppressClickTimerRef.current)
+      suppressClickTimerRef.current = window.setTimeout(() => {
+        suppressedClickThreadRef.current = null
+        suppressClickTimerRef.current = null
+      }, 0)
+      draggingThreadIdRef.current = null
+      setDraggingThreadId(null)
+      void api<{ discussions: DiscussionThread[] }>(`/api/share/${encodeURIComponent(shareToken)}/discussions/${thread.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(latest)
+      }).then((result) => {
+        setThreads(result.discussions)
+        setError(null)
+      }).catch((cause) => {
+        restore()
+        setError(cause instanceof Error ? cause.message : 'The discussion could not be moved.')
+        void load().catch(() => undefined)
+      })
+    }
+    const cancel = (pointerEvent: PointerEvent): void => {
+      if (pointerEvent.pointerId !== pointerId) return
+      cleanup()
+      if (dragged) restore()
+    }
+
+    window.addEventListener('pointermove', move, { passive: false })
+    window.addEventListener('pointerup', complete)
+    window.addEventListener('pointercancel', cancel)
+    dragCleanupRef.current = cleanup
+  }
+
   return (
     <div
       aria-hidden={!enabled}
@@ -276,21 +390,32 @@ export function CommentLayer({ enabled, shareToken, slideId }: {
       data-enabled={enabled}
       onClick={(event) => {
         if (!enabled || event.target !== event.currentTarget) return
-        const anchor = commentAnchorFromClientPoint(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())
-        if (!anchor) return
-        setActiveThreadId(null)
-        setDraft(anchor)
-        setPanelAnchor({ point: { x: event.clientX, y: event.clientY } })
+        openComposerAt(event.clientX, event.clientY)
       }}
+      ref={layerRef}
     >
       {enabled && slideThreads.map((thread) => (
         <button
           aria-label={`Open discussion with ${thread.comments.length} ${thread.comments.length === 1 ? 'comment' : 'comments'}`}
           className="comment-pin"
           data-active={activeThreadId === thread.id}
+          data-dragging={draggingThreadId === thread.id}
+          data-movable={thread.canMove}
           data-no-pan
           key={thread.id}
-          onClick={(event) => { event.stopPropagation(); openThread(thread, event.currentTarget) }}
+          onClick={(event) => {
+            event.stopPropagation()
+            if (suppressedClickThreadRef.current === thread.id) {
+              event.preventDefault()
+              suppressedClickThreadRef.current = null
+              if (suppressClickTimerRef.current !== null) window.clearTimeout(suppressClickTimerRef.current)
+              suppressClickTimerRef.current = null
+              return
+            }
+            openThread(thread, event.currentTarget)
+          }}
+          onDragStart={(event) => event.preventDefault()}
+          onPointerDown={(event) => beginPinInteraction(event, thread)}
           ref={(element) => {
             if (element) pinElementsRef.current.set(thread.id, element)
             else pinElementsRef.current.delete(thread.id)
@@ -333,4 +458,4 @@ export function CommentLayer({ enabled, shareToken, slideId }: {
       )}
     </div>
   )
-}
+})

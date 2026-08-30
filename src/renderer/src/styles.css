@@ -1382,6 +1382,11 @@ html[data-platform="darwin"] .top-bar-content {
   color: var(--error);
 }
 
+.artwork-context-menu {
+  width: 188px;
+  z-index: 230;
+}
+
 .reference-picker-menu {
   background: var(--ui-background);
   border: 1px solid var(--ui-outline);

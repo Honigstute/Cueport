@@ -80,7 +80,9 @@ Publishing from the desktop app:
 The owner dashboard is hosted at `https://cueport.steveschreiner.de`. It lists
 published revisions, manages invited member profiles, and can copy, disable, or
 delete client links. Signed-in members can open shared presentations and use C
-or the comment button to join artwork-anchored discussions.
+or the comment button to join artwork-anchored discussions. Right-clicking the
+artwork offers **Create Comment** and **Place Reference** directly. A short click
+opens a discussion pin; its creator (or the owner) can drag it to a new point.
 
 ## Deployment boundary
 

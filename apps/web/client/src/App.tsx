@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PresentationDocument } from '../../../../src/shared/presentation'
 import { Stage } from '../../../../src/renderer/src/components/Stage'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
@@ -9,7 +9,7 @@ import { PublicationCard, type PublishedPresentation } from './PublicationCard'
 import { ViewerControls } from './ViewerControls'
 import { AccountManagerDialog } from './AccountManagerDialog'
 import { AccountMenu } from './AccountMenu'
-import { CommentLayer } from './CommentLayer'
+import { CommentLayer, type CommentLayerHandle } from './CommentLayer'
 import { ProfileDialog } from './ProfileDialog'
 import { api } from './api'
 import type { SessionResponse, UserProfile } from './accountTypes'
@@ -269,6 +269,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const [fitWidth, setFitWidth] = useState(0)
   const [isInterfaceVisible, setIsInterfaceVisible] = useState(true)
   const [commentsEnabled, setCommentsEnabled] = useState(false)
+  const commentLayerRef = useRef<CommentLayerHandle>(null)
 
   useEffect(() => {
     let active = true
@@ -333,6 +334,12 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const zoomBy = useCallback((direction: -1 | 1): void => {
     setView((current) => current ? { ...current, mode: 'canvas' } : current)
     setZoom((current) => nextZoomStop(current, direction))
+  }, [])
+
+  const createCommentAt = useCallback((clientX: number, clientY: number): void => {
+    setIsInterfaceVisible(true)
+    setCommentsEnabled(true)
+    commentLayerRef.current?.openComposerAt(clientX, clientY)
   }, [])
 
   useEffect(() => {
@@ -414,6 +421,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
           onChooseMedia={() => undefined}
           onFitWidthChange={(_slideId, width) => setFitWidth(width)}
           onNavigate={navigate}
+          onCreateCommentAt={createCommentAt}
           onZoomChange={setZoom}
           phoneBrowserBars={settings.phoneBrowserBars}
           programBarColor={settings.programBarColor}
@@ -427,6 +435,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
           artworkOverlay={slide ? (
             <CommentLayer
               enabled={commentsEnabled && isInterfaceVisible}
+              ref={commentLayerRef}
               shareToken={token}
               slideId={slide.id}
             />

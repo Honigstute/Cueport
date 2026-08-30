@@ -89,6 +89,13 @@ try {
   assert.equal(retriedFirst.threadId, first.threadId)
   assert.equal(retriedFirst.commentId, first.commentId)
   assert.equal(retriedFirst.discussions[0].comments.length, 1)
+  const movedThread = await json(await fetch(`${discussionBase}/${first.threadId}`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ x: 0.4, y: 0.6 })
+  }))
+  assert.equal(movedThread.discussions[0].x, 0.4)
+  assert.equal(movedThread.discussions[0].y, 0.6)
   const replyRequestId = randomUUID()
   const replyRequest = JSON.stringify({ body: 'Reply check', requestId: replyRequestId })
   const reply = await json(await fetch(`${discussionBase}/${first.threadId}/comments`, {
@@ -141,6 +148,19 @@ try {
     assert.ok(memberCookie)
     const memberHeaders = { Cookie: memberCookie, Origin: publicUrl }
 
+    const ownerOnlyThread = await json(await fetch(discussionBase, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slideId, x: 0.1, y: 0.1, body: 'Owner movement permission check' })
+    }))
+    const forbiddenMove = await fetch(`${discussionBase}/${ownerOnlyThread.threadId}`, {
+      method: 'PATCH',
+      headers: { ...memberHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x: 0.2, y: 0.2 })
+    })
+    assert.equal(forbiddenMove.status, 403)
+    await json(await fetch(`${discussionBase}/${ownerOnlyThread.threadId}`, { method: 'DELETE', headers }))
+
     await json(await fetch(`${baseUrl}/api/profile`, {
       method: 'PATCH',
       headers: { ...memberHeaders, 'Content-Type': 'application/json' },
@@ -152,6 +172,13 @@ try {
       headers: { ...memberHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ slideId, x: 0.75, y: 0.25, body: 'https://example.com member check' })
     }))
+    const memberMoved = await json(await fetch(`${discussionBase}/${memberThread.threadId}`, {
+      method: 'PATCH',
+      headers: { ...memberHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x: 0.7, y: 0.3 })
+    }))
+    assert.equal(memberMoved.discussions[0].x, 0.7)
+    assert.equal(memberMoved.discussions[0].y, 0.3)
     await json(await fetch(`${discussionBase}/${memberThread.threadId}/comments/${memberThread.commentId}`, {
       method: 'PATCH',
       headers: { ...memberHeaders, 'Content-Type': 'application/json' },

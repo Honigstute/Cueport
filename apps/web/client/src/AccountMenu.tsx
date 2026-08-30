@@ -35,9 +35,9 @@ export function AccountMenu({ profile, onAccounts, onLogout, onProfile }: {
       </button>
       {open && (
         <div className="account-popover" role="menu">
-          <button onClick={() => { setOpen(false); onProfile() }} role="menuitem" type="button"><Icon name="user" size={15} /><span>Your profile</span></button>
+          <button onClick={() => { setOpen(false); onProfile() }} role="menuitem" type="button"><Icon name="user" size={15} /><span>Your Profile</span></button>
           {onAccounts && <button onClick={() => { setOpen(false); onAccounts() }} role="menuitem" type="button"><Icon name="settings" size={15} /><span>Accounts</span></button>}
-          <button onClick={() => { setOpen(false); onLogout() }} role="menuitem" type="button"><Icon name="arrow-left" size={15} /><span>Sign out</span></button>
+          <button onClick={() => { setOpen(false); onLogout() }} role="menuitem" type="button"><Icon name="arrow-left" size={15} /><span>Sign Out</span></button>
         </div>
       )}
     </div>

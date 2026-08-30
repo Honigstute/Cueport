@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useClickDragScroll, type SlideNavigationDirection } from '../hooks/useClickDragScroll'
 import { getReadableInk } from '../lib/colors'
 import { shouldUseEdgeToEdgeCanvas } from '../lib/layout'
@@ -36,6 +37,8 @@ interface StageProps {
   onFitWidthChange: (slideId: string, width: number) => void
   /** Optional web collaboration UI rendered in source-artwork coordinates. */
   artworkOverlay?: React.ReactNode
+  /** Optional web action; its presence adds Create comment to the artwork menu. */
+  onCreateCommentAt?: (clientX: number, clientY: number) => void
 }
 
 const MODE_LABELS: Record<DisplayMode, string> = {
@@ -48,6 +51,53 @@ const ZOOM_ANCHOR_DURATION = 240
 const WINDOW_BAR_HEIGHT = 30
 
 type VisibleCanvasFrame = Exclude<CanvasFrame, 'none'>
+
+interface ArtworkMenuPoint {
+  canCreateComment: boolean
+  x: number
+  y: number
+}
+
+function ArtworkContextMenu({ onClose, onCreateComment, onPlaceReference, x, y }: {
+  onClose: () => void
+  onCreateComment?: () => void
+  onPlaceReference: () => void
+  x: number
+  y: number
+}): React.JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const actionCount = onCreateComment ? 2 : 1
+  const left = Math.max(8, Math.min(x, window.innerWidth - 196))
+  const top = Math.max(8, Math.min(y, window.innerHeight - (actionCount * 40 + 8)))
+
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent): void => {
+      if (!(event.target instanceof Node) || !menuRef.current?.contains(event.target)) onClose()
+    }
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('pointerdown', closeOutside, true)
+    window.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', onClose)
+    window.addEventListener('scroll', onClose, true)
+    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    return () => {
+      window.removeEventListener('pointerdown', closeOutside, true)
+      window.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('resize', onClose)
+      window.removeEventListener('scroll', onClose, true)
+    }
+  }, [onClose])
+
+  return createPortal(
+    <div className="artwork-context-menu slide-context-menu" ref={menuRef} role="menu" style={{ left, top }}>
+      {onCreateComment && <button onClick={onCreateComment} role="menuitem" type="button"><Icon name="comment" size={15} /><span>Create Comment</span></button>}
+      <button onClick={onPlaceReference} role="menuitem" type="button"><Icon name="image" size={15} /><span>Place Reference</span></button>
+    </div>,
+    document.body
+  )
+}
 
 function ArtworkMedia({ slide, style }: { slide: SlideAsset; style?: React.CSSProperties }): React.JSX.Element {
   if (slide.mimeType === 'video/mp4') {
@@ -172,9 +222,11 @@ export function Stage({
   onNavigate,
   onZoomChange,
   onFitWidthChange,
-  artworkOverlay
+  artworkOverlay,
+  onCreateCommentAt
 }: StageProps): React.JSX.Element {
   const referenceLayerRef = useRef<ReferenceOverlayLayerHandle>(null)
+  const [artworkMenu, setArtworkMenu] = useState<ArtworkMenuPoint | null>(null)
   const isViewportActive = mode === 'canvas' && viewportEnabled
   const activeCanvasFrame = mode === 'canvas' ? canvasFrame : 'none'
   const [outerScrollElement, setOuterScrollRef, scrollAreaSize] = useElementContentSize<HTMLDivElement>(
@@ -224,6 +276,7 @@ export function Stage({
   useEffect(() => {
     outerScrollElement?.scrollTo({ top: 0, left: 0 })
     viewportScrollRef.current?.scrollTo({ top: 0, left: 0 })
+    setArtworkMenu(null)
   }, [outerScrollElement, slide?.id, mode, isViewportActive, viewport.width, viewport.height])
 
   useEffect(() => cancelZoomAnchor, [cancelZoomAnchor])
@@ -407,7 +460,12 @@ export function Stage({
       onContextMenu={(event) => {
         if (!slide || (event.target instanceof Element && event.target.closest('.reference-overlay'))) return
         event.preventDefault()
-        referenceLayerRef.current?.openPicker(event.clientX, event.clientY)
+        const artworkTarget = event.target instanceof Element && Boolean(event.target.closest('.artwork-content'))
+        setArtworkMenu({
+          canCreateComment: artworkTarget && Boolean(onCreateCommentAt),
+          x: event.clientX,
+          y: event.clientY
+        })
       }}
       style={{
         '--stage-background': background,
@@ -525,6 +583,26 @@ export function Stage({
             references={references}
             slideId={slide.id}
           />
+
+          {artworkMenu && (
+            <ArtworkContextMenu
+              onClose={() => setArtworkMenu(null)}
+              onCreateComment={artworkMenu.canCreateComment && onCreateCommentAt
+                ? () => {
+                    const point = artworkMenu
+                    setArtworkMenu(null)
+                    onCreateCommentAt(point.x, point.y)
+                  }
+                : undefined}
+              onPlaceReference={() => {
+                const point = artworkMenu
+                setArtworkMenu(null)
+                referenceLayerRef.current?.openPicker(point.x, point.y)
+              }}
+              x={artworkMenu.x}
+              y={artworkMenu.y}
+            />
+          )}
 
           {brand.logoUrl && brand.showOnCanvas && (
             <div

@@ -23,6 +23,7 @@ interface DiscussionRow extends QueryResultRow {
   slide_id: string
   position_x_ppm: number
   position_y_ppm: number
+  thread_created_by: string | null
   thread_created_at: Date
   thread_updated_at: Date
   comment_id: string
@@ -77,6 +78,14 @@ function validBody(value: unknown): string {
   }
 }
 
+function validCoordinates(xValue: unknown, yValue: unknown): { x: number; y: number } {
+  try {
+    return { x: coordinateToPpm(xValue), y: coordinateToPpm(yValue) }
+  } catch (error) {
+    throw new ApiError(400, error instanceof Error ? error.message : 'Place the discussion inside the layout.')
+  }
+}
+
 function requestId(value: unknown): string {
   if (value === undefined) return randomUUID()
   try {
@@ -99,6 +108,7 @@ async function listDiscussions(database: DatabaseReader, presentationId: string,
        threads.slide_id,
        threads.position_x_ppm,
        threads.position_y_ppm,
+       threads.created_by AS thread_created_by,
        threads.created_at AS thread_created_at,
        threads.updated_at AS thread_updated_at,
        comments.id AS comment_id,
@@ -129,6 +139,7 @@ async function listDiscussions(database: DatabaseReader, presentationId: string,
     createdAt: string
     updatedAt: string
     canDelete: boolean
+    canMove: boolean
     comments: unknown[]
   }>()
   for (const row of result.rows) {
@@ -142,6 +153,7 @@ async function listDiscussions(database: DatabaseReader, presentationId: string,
         createdAt: row.thread_created_at.toISOString(),
         updatedAt: row.thread_updated_at.toISOString(),
         canDelete: user.role === 'owner',
+        canMove: row.thread_created_by === user.id || user.role === 'owner',
         comments: []
       }
       threads.set(row.thread_id, thread)
@@ -181,14 +193,7 @@ export function registerDiscussionRoutes({ app, pool, requireUser }: DiscussionR
     const body = jsonBody(request.body)
     const slideId = validSlideId(context, body.slideId)
     const comment = validBody(body.body)
-    let x: number
-    let y: number
-    try {
-      x = coordinateToPpm(body.x)
-      y = coordinateToPpm(body.y)
-    } catch (error) {
-      throw new ApiError(400, error instanceof Error ? error.message : 'Place the discussion inside the layout.')
-    }
+    const { x, y } = validCoordinates(body.x, body.y)
     let threadId: string = randomUUID()
     const commentId = requestId(body.requestId)
     const client = await pool.connect()
@@ -232,6 +237,37 @@ export function registerDiscussionRoutes({ app, pool, requireUser }: DiscussionR
       commentId,
       discussions
     }
+  })
+
+  app.patch('/api/share/:token/discussions/:threadId', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (request) => {
+    const user = await requireUser(request)
+    const { token, threadId } = request.params as { token: string; threadId: string }
+    const context = await publishedContext(pool, token)
+    const body = jsonBody(request.body)
+    const { x, y } = validCoordinates(body.x, body.y)
+    const discussions = await withTransaction(pool, async (client) => {
+      const result = await client.query<{ created_by: string | null }>(
+        `SELECT created_by FROM cueport_comment_threads
+         WHERE id = $1 AND presentation_id = $2
+         FOR UPDATE`,
+        [threadId, context.presentationId]
+      )
+      const thread = result.rows[0]
+      if (!thread) throw new ApiError(404, 'The discussion does not exist.')
+      if (thread.created_by !== user.id && user.role !== 'owner') {
+        throw new ApiError(403, 'You can only move discussions you created.')
+      }
+      // Moving a pin is spatial editing, not new discussion activity. Preserve
+      // updated_at so repositioning does not reorder the conversation list.
+      await client.query(
+        `UPDATE cueport_comment_threads
+         SET position_x_ppm = $1, position_y_ppm = $2
+         WHERE id = $3`,
+        [x, y, threadId]
+      )
+      return listDiscussions(client, context.presentationId, user)
+    })
+    return { success: true, discussions }
   })
 
   app.post('/api/share/:token/discussions/:threadId/comments', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request) => {

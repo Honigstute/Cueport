@@ -23,3 +23,18 @@ export function commentAnchorFromClientPoint(clientX: number, clientY: number, r
     y: clamp((clientY - rect.top) / rect.height)
   }
 }
+
+/** Move a saved artwork-relative point by a rendered pointer delta. */
+export function moveCommentAnchor(
+  anchor: NormalizedCommentAnchor,
+  deltaX: number,
+  deltaY: number,
+  rect: Pick<RectLike, 'width' | 'height'>
+): NormalizedCommentAnchor | null {
+  if (![anchor.x, anchor.y, deltaX, deltaY, rect.width, rect.height].every(Number.isFinite)) return null
+  if (rect.width <= 0 || rect.height <= 0) return null
+  return {
+    x: clamp(anchor.x + deltaX / rect.width),
+    y: clamp(anchor.y + deltaY / rect.height)
+  }
+}

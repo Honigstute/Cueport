@@ -24,5 +24,6 @@ export interface DiscussionThread {
   createdAt: string
   updatedAt: string
   canDelete: boolean
+  canMove: boolean
   comments: DiscussionComment[]
 }
