@@ -20,5 +20,9 @@ contextBridge.exposeInMainWorld('cueport', {
   openPresentation: (id) => ipcRenderer.invoke('presentation:open', id),
   renamePresentation: (id, name) => ipcRenderer.invoke('presentation:rename', id, name),
   deletePresentation: (id) => ipcRenderer.invoke('presentation:delete', id),
-  reorderPresentations: (ids) => ipcRenderer.invoke('presentation:reorder', ids)
+  reorderPresentations: (ids) => ipcRenderer.invoke('presentation:reorder', ids),
+  getPublishingStatus: () => ipcRenderer.invoke('publishing:status'),
+  signInToPublishing: (request) => ipcRenderer.invoke('publishing:sign-in', request),
+  signOutOfPublishing: () => ipcRenderer.invoke('publishing:sign-out'),
+  publishPresentation: (id) => ipcRenderer.invoke('publishing:publish', id)
 } satisfies DesktopHost)

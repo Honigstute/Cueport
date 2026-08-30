@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+backup_root=/var/backups/cueport
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+destination="$backup_root/$timestamp"
+
+install -d -m 0700 -o postgres -g postgres "$destination"
+runuser -u postgres -- pg_dump --format=custom --file="$destination/database.dump" cueport
+chown root:root "$destination" "$destination/database.dump"
+tar -C /var/lib/cueport -czf "$destination/assets.tar.gz" assets
+sha256sum "$destination/database.dump" "$destination/assets.tar.gz" > "$destination/SHA256SUMS"
+chmod 0600 "$destination"/*
+
+# Keep two weeks of daily recovery points. The preflight portfolio backup is
+# stored elsewhere and is never touched by this cleanup.
+find "$backup_root" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf -- {} +

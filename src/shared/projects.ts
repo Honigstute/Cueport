@@ -1,4 +1,4 @@
-import type { PresentationAssetMimeType, PresentationMediaMimeType, PresentationSettings } from './presentation'
+import type { PresentationAssetMimeType, PresentationDocument, PresentationMediaMimeType, PresentationSettings } from './presentation'
 
 /**
  * Desktop runtime contracts shared by Electron and the renderer.
@@ -63,6 +63,33 @@ export interface OpenPresentationResult {
   } | null
 }
 
+export interface PublishingStatus {
+  signedIn: boolean
+  serverUrl: string
+  email: string | null
+}
+
+export interface PublishingSignInRequest {
+  serverUrl: string
+  email: string
+  password: string
+}
+
+export interface PublishingResult {
+  shareUrl: string
+  revisionNumber: number
+}
+
+export interface PublicationSource {
+  document: PresentationDocument
+  assets: Array<{
+    key: string
+    mimeType: PresentationMediaMimeType | PresentationAssetMimeType
+    filePath: string
+    bytes: number
+  }>
+}
+
 export type DesktopPlatform = 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32'
 
 /** The renderer's intentionally small, replaceable interface to its host. */
@@ -77,4 +104,8 @@ export interface CueportHost<ImportedFile = unknown> {
   renamePresentation: (id: string, name: string) => Promise<SavedPresentationSummary>
   deletePresentation: (id: string) => Promise<void>
   reorderPresentations: (ids: string[]) => Promise<void>
+  getPublishingStatus: () => Promise<PublishingStatus>
+  signInToPublishing: (request: PublishingSignInRequest) => Promise<PublishingStatus>
+  signOutOfPublishing: () => Promise<PublishingStatus>
+  publishPresentation: (id: string) => Promise<PublishingResult>
 }

@@ -7,6 +7,7 @@ import { HelpDialog } from './components/HelpDialog'
 import { HomeScreen } from './components/HomeScreen'
 import { Inspector } from './components/Inspector'
 import { PresentationNameDialog } from './components/PresentationNameDialog'
+import { PublishDialog } from './components/PublishDialog'
 import { Stage } from './components/Stage'
 import { Toast } from './components/Toast'
 import { TopBar } from './components/TopBar'
@@ -78,6 +79,7 @@ export default function App(): React.JSX.Element {
   const [openingPresentationId, setOpeningPresentationId] = useState<string | null>(null)
   const [savedPresentation, setSavedPresentation] = useState<Pick<SavedPresentationSummary, 'id' | 'name'> | null>(null)
   const [presentationNameRequest, setPresentationNameRequest] = useState<PresentationNameRequest | null>(null)
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false)
   const [savedProjectSnapshot, setSavedProjectSnapshot] = useState<string | null>(null)
   const [isUnsavedPromptOpen, setIsUnsavedPromptOpen] = useState(false)
   const [isSavingOnExit, setIsSavingOnExit] = useState(false)
@@ -811,6 +813,7 @@ export default function App(): React.JSX.Element {
         mode={state.mode}
         onGoHome={requestReturnToPresentationHome}
         onModeChange={changeDisplayMode}
+        onPublish={() => setIsPublishDialogOpen(true)}
         onSequenceTitlesChange={(patch) => dispatch({ type: 'PATCH_SEQUENCE_TITLES', patch })}
         onToggleChrome={toggleAllInterface}
         onViewportToggle={toggleViewport}
@@ -965,6 +968,19 @@ export default function App(): React.JSX.Element {
               completeReturnToPresentationHome()
             }
           }}
+        />
+      )}
+      {isPublishDialogOpen && (
+        <PublishDialog
+          isDirty={isPresentationDirty}
+          isSaved={savedPresentation !== null}
+          onClose={() => setIsPublishDialogOpen(false)}
+          onPublish={async () => {
+            if (!window.cueport || !savedPresentation) throw new Error('Save this presentation before publishing it.')
+            if (isPresentationDirty) await persistPresentation(savedPresentation.name)
+            return window.cueport.publishPresentation(savedPresentation.id)
+          }}
+          presentationName={savedPresentation?.name ?? 'Unsaved presentation'}
         />
       )}
       {toast && <Toast onDismiss={() => setToast(null)} toast={toast} />}

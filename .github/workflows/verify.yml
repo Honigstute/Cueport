@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  desktop:
-    name: Desktop checks
+  verify:
+    name: Desktop and web checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -32,5 +32,57 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify desktop app
+      - name: Verify Cueport
         run: pnpm verify
+
+  deploy-web:
+    name: Deploy web app
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.19.0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build deployable web release
+        run: |
+          pnpm build:web
+          pnpm --filter @cueport/web deploy --prod --legacy build/cueport-web
+          cp -R apps/web/dist-client build/cueport-web/dist-client
+          cp -R apps/web/dist-server build/cueport-web/dist-server
+          tar -C build/cueport-web -czf build/cueport-web.tar.gz .
+
+      - name: Configure deployment connection
+        env:
+          DEPLOY_KEY: ${{ secrets.CUEPORT_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.CUEPORT_KNOWN_HOSTS }}
+        run: |
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/cueport_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/cueport_deploy ~/.ssh/known_hosts
+
+      - name: Deploy and restart Cueport
+        env:
+          DEPLOY_HOST: ${{ secrets.CUEPORT_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.CUEPORT_DEPLOY_USER }}
+        run: |
+          scp -i ~/.ssh/cueport_deploy build/cueport-web.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:release.tar.gz"
+          ssh -i ~/.ssh/cueport_deploy "$DEPLOY_USER@$DEPLOY_HOST" /usr/local/bin/cueport-activate-release

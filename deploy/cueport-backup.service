@@ -1,0 +1,7 @@
+[Unit]
+Description=Back up Cueport database and immutable presentation assets
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cueport-backup

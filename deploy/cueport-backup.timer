@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Cueport recovery point
+
+[Timer]
+OnCalendar=*-*-* 03:20:00 Europe/Berlin
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+archive=/var/lib/cueport-deploy/release.tar.gz
+releases=/opt/cueport/releases
+release="$releases/$(date -u +%Y%m%dT%H%M%SZ)"
+
+test -f "$archive"
+install -d -m 0755 "$release"
+tar -xzf "$archive" -C "$release"
+test -f "$release/dist-server/index.mjs"
+test -f "$release/dist-client/index.html"
+ln -sfn "$release" /opt/cueport/current
+sudo /usr/bin/systemctl restart cueport.service
+sudo /usr/bin/systemctl is-active --quiet cueport.service
+curl --fail --silent --show-error http://127.0.0.1:3002/api/health >/dev/null
+rm -f "$archive"
+
+# Releases are immutable and switching is atomic. Keep three so a rollback is
+# immediate, while preventing old web builds from accumulating indefinitely.
+mapfile -t old_releases < <(find "$releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | tail -n +4 | cut -d' ' -f2-)
+if ((${#old_releases[@]})); then rm -rf -- "${old_releases[@]}"; fi

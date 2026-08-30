@@ -1,0 +1,1 @@
+cueport-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart cueport.service, /usr/bin/systemctl is-active --quiet cueport.service

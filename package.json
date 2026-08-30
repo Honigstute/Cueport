@@ -13,13 +13,17 @@
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p src/renderer/tsconfig.json",
-    "test": "vitest run",
-    "build": "pnpm typecheck && electron-vite build",
+    "typecheck:desktop": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p src/renderer/tsconfig.json",
+    "typecheck": "pnpm typecheck:desktop && pnpm --filter @cueport/web typecheck",
+    "test:desktop": "vitest run",
+    "test": "pnpm test:desktop && pnpm --filter @cueport/web test",
+    "build:desktop": "pnpm typecheck:desktop && electron-vite build",
+    "build:web": "pnpm --filter @cueport/web build",
+    "build": "pnpm build:desktop && pnpm build:web",
     "verify": "pnpm test && pnpm build",
-    "dist": "pnpm build && electron-builder",
-    "dist:mac": "pnpm build && electron-builder --mac",
-    "dist:win": "pnpm build && electron-builder --win"
+    "dist": "pnpm build:desktop && electron-builder",
+    "dist:mac": "pnpm build:desktop && electron-builder --mac",
+    "dist:win": "pnpm build:desktop && electron-builder --win"
   },
   "dependencies": {
     "react": "^19.2.8",

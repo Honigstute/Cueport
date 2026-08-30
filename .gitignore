@@ -2,6 +2,8 @@ node_modules/
 .pnpm-store/
 out/
 release/
+apps/*/dist-client/
+apps/*/dist-server/
 .DS_Store
 *.log
 coverage/

@@ -19,6 +19,7 @@ interface TopBarProps {
   zoom: number
   displayResolution: DisplayResolution | null
   onGoHome: () => void
+  onPublish: () => void
   onModeChange: (mode: DisplayMode) => void
   onSequenceTitlesChange: (patch: Partial<SequenceTitleSettings>) => void
   onToggleChrome: () => void
@@ -45,6 +46,7 @@ export function TopBar({
   zoom,
   displayResolution,
   onGoHome,
+  onPublish,
   onModeChange,
   onSequenceTitlesChange,
   onToggleChrome,
@@ -229,6 +231,10 @@ export function TopBar({
         </div>}
 
         {!isHome && <div className="top-actions">
+          <button className="icon-button persistent-action" onClick={onPublish} title="Publish private web link" type="button">
+            <Icon name="upload" size={17} />
+            <span className="sr-only">Publish private web link</span>
+          </button>
           <button
             aria-pressed={isChromeVisible}
             className="icon-button persistent-action"

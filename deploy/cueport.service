@@ -1,0 +1,28 @@
+[Unit]
+Description=Cueport private publishing service
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=cueport
+Group=cueport
+WorkingDirectory=/opt/cueport/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/cueport/cueport.env
+ExecStart=/usr/bin/node /opt/cueport/current/dist-server/index.mjs
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+# The application is read-only except for its dedicated asset directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cueport
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

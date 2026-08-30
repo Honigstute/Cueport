@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": [
+    "client/src",
+    "server",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "../../src/shared",
+    "../../src/renderer/src/components/Stage.tsx",
+    "../../src/renderer/src/components/EmptyState.tsx",
+    "../../src/renderer/src/components/Icon.tsx",
+    "../../src/renderer/src/components/ReferenceOverlayLayer.tsx",
+    "../../src/renderer/src/hooks/useClickDragScroll.ts",
+    "../../src/renderer/src/lib",
+    "../../src/renderer/src/types.ts"
+  ]
+}

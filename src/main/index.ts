@@ -4,7 +4,7 @@ import { access, copyFile, mkdir, readFile, readdir, rename, rm, stat, unlink, w
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
-import type { OpenPresentationResult, SavePresentationRequest, SavedPresentationSummary } from '../shared/projects'
+import type { OpenPresentationResult, PublicationSource, SavePresentationRequest, SavedPresentationSummary } from '../shared/projects'
 import {
   PRESENTATION_DOCUMENT_VERSION,
   mimeTypeFromFileName,
@@ -14,6 +14,7 @@ import {
   type PresentationDocument
 } from '../shared/presentation'
 import { resolveByteRange } from './httpRange'
+import { configurePublishingHandlers } from './publishing'
 
 const DEVELOPMENT_RENDERER_URL = process.env.ELECTRON_RENDERER_URL
 const DEVELOPMENT_ICON = join(app.getAppPath(), 'build/icon.png')
@@ -523,6 +524,34 @@ function configurePresentationHandlers(): void {
   })
 }
 
+async function loadPublicationSource(candidateId: unknown): Promise<PublicationSource> {
+  const id = validateProjectId(candidateId)
+  const document = await readStoredPresentation(id)
+  const directory = projectDirectory(id)
+  const candidates: Array<{ key: string; mimeType: PublicationSource['assets'][number]['mimeType'] }> = [
+    ...document.slides.flatMap((slide) => [
+      { key: slide.assetKey, mimeType: slide.mimeType },
+      ...(slide.posterKey ? [{ key: slide.posterKey, mimeType: 'image/jpeg' as const }] : [])
+    ]),
+    ...document.references.flatMap((reference) => [
+      { key: reference.assetKey, mimeType: reference.mimeType },
+      ...(reference.posterKey ? [{ key: reference.posterKey, mimeType: 'image/jpeg' as const }] : [])
+    ]),
+    ...(document.brand ? [{ key: document.brand.assetKey, mimeType: document.brand.mimeType }] : [])
+  ]
+  const keys = new Set<string>()
+  const assets: PublicationSource['assets'] = []
+  for (const candidate of candidates) {
+    if (keys.has(candidate.key)) throw new Error('The saved presentation reuses an asset reference.')
+    keys.add(candidate.key)
+    const filePath = resolveProjectAsset(directory, candidate.key)
+    const fileStats = await stat(filePath)
+    if (!fileStats.isFile() || fileStats.size < 1) throw new Error(`The saved asset ${candidate.key} is unavailable.`)
+    assets.push({ ...candidate, filePath, bytes: fileStats.size })
+  }
+  return { document, assets }
+}
+
 function configureImportedAssetHandlers(): void {
   ipcMain.handle('asset:register', async (event, candidatePath: unknown) => {
     if (!isTrustedRenderer(event)) throw new Error('Untrusted media request.')
@@ -646,6 +675,11 @@ app.whenReady().then(() => {
   configureAssetProtocol()
   configureImportedAssetHandlers()
   configurePresentationHandlers()
+  configurePublishingHandlers({
+    credentialsPath: join(app.getPath('userData'), 'publishing.json'),
+    isTrustedRenderer,
+    loadPublication: loadPublicationSource
+  })
   if (!app.isPackaged && process.platform === 'darwin') app.dock?.setIcon(DEVELOPMENT_ICON)
   session.defaultSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
     return permission === 'fullscreen' && details.isMainFrame && Boolean(

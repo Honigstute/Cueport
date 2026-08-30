@@ -892,6 +892,48 @@ html[data-platform="darwin"] .top-bar-content {
   width: 42%;
 }
 
+/* Publishing is a narrow desktop-to-server flow. Credentials never leave the
+   protected Electron host after sign-in; this dialog only collects them. */
+.publish-dialog { width: min(480px, calc(100vw - 32px)); }
+.publish-dialog .rename-dialog-copy p { overflow-wrap: anywhere; }
+.publish-login,
+.publish-confirmation,
+.publish-result { display: grid; gap: var(--space-4); }
+.publish-status,
+.publish-confirmation > p,
+.publish-result > p {
+  color: var(--ui-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.publish-account-row {
+  align-items: center;
+  background: var(--ui-input);
+  border: 1px solid var(--ui-outline);
+  border-radius: var(--radius-sm);
+  color: var(--ui-text-muted);
+  display: flex;
+  justify-content: space-between;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+}
+.publish-account-row button {
+  background: transparent;
+  color: var(--ui-text);
+  padding: var(--space-2);
+}
+.publish-account-row button:hover { background: var(--ui-hover); }
+.publish-result strong { color: var(--ui-text); font-size: 15px; }
+.publish-result > input {
+  background: var(--ui-input);
+  border: 1px solid var(--ui-outline);
+  border-radius: var(--radius-sm);
+  color: var(--ui-text);
+  height: 42px;
+  padding: 0 var(--space-3);
+  user-select: text;
+}
+
 /* Permanent canvas with overlay controls */
 .workspace {
   bottom: 0;

@@ -2,7 +2,7 @@
 
 Cueport is a local-first desktop presenter for website designs, walkthrough videos, and other visual work. It keeps client media on the presenter’s computer and replaces desktop clutter with a controlled canvas, sequence, references, viewport previews, and optional client branding.
 
-The desktop app targets macOS and Windows through Electron. Its React renderer is browser-only, and saved presentations use a portable document format so the presentation surface can later be published to the web without rebuilding its data model.
+The desktop app targets macOS and Windows through Electron. Its React renderer is browser-only, and saved presentations use the same portable document format as the private web viewer.
 
 ## Run locally
 
@@ -56,11 +56,43 @@ pnpm dist:win
 - [`src/renderer`](src/renderer) owns the React presentation experience and does not import Electron.
 - [`src/shared/presentation.ts`](src/shared/presentation.ts) is the runtime-independent, versioned presentation document and settings validator.
 - [`src/shared/projects.ts`](src/shared/projects.ts) contains desktop runtime messages; opaque source keys and local URLs never enter the portable document.
+- [`apps/web`](apps/web) contains the owner dashboard, publishing API, and read-only client viewer.
+- [`deploy`](deploy) contains the reproducible system service, backup, proxy, smoke-test, and release activation definitions.
 
 The Electron renderer is sandboxed, context-isolated, and has Node integration disabled. Saved asset references are relative keys such as `assets/<id>.png` or `assets/<id>.mp4`, never absolute filesystem paths. MP4 files are streamed with byte-range support instead of being loaded into memory. Original version-1 desktop projects are migrated when read and are written in the portable format on their next save.
 
-See [`docs/PRESENTATION_FORMAT.md`](docs/PRESENTATION_FORMAT.md) for the document contract and [`docs/WEB_FOUNDATION.md`](docs/WEB_FOUNDATION.md) for the deliberate desktop/web boundary and next implementation phase.
+See [`docs/PRESENTATION_FORMAT.md`](docs/PRESENTATION_FORMAT.md) for the document contract and [`docs/WEB_FOUNDATION.md`](docs/WEB_FOUNDATION.md) for the deliberate desktop/web boundary.
 
-## Current boundary
+## Desktop and web together
 
-This repository now contains the desktop app and the shared document foundation required by a future web viewer. Accounts, public/private sharing links, server uploads, and Hetzner deployment are deliberately the next phase: they require authentication, authorization, object storage, a database, and release secrets that do not belong inside the desktop editor.
+`pnpm verify` tests and builds both applications. The desktop app remains the
+editor and local library; the web service receives explicit immutable revisions
+and serves revocable, unguessable client links.
+
+Publishing from the desktop app:
+
+1. Save the presentation locally.
+2. Choose the Publish icon in the top bar.
+3. Sign in with the Cueport owner account once. The desktop token is kept in the
+   operating system's protected credential storage.
+4. Publish, then copy the private link.
+
+The owner dashboard is hosted at `https://cueport.steveschreiner.de`. It lists
+published revisions and can copy, disable, or delete client links.
+
+## Deployment boundary
+
+The Hetzner installation is isolated from the portfolio:
+
+- dedicated `cueport` service user and port 3002;
+- dedicated PostgreSQL database and login;
+- immutable assets under `/var/lib/cueport/assets`;
+- daily database and asset backups under `/var/backups/cueport`;
+- automatic HTTPS through the existing Caddy proxy;
+- atomic web releases, with the newest three retained for rollback.
+
+Pushing a verified change to `main` deploys the web application. The same commit
+also contains the desktop source, so both versions share one presentation format.
+Shipping an automatic desktop update additionally requires Apple signing and a
+release channel; until those credentials exist, desktop installers remain a
+separate release step.

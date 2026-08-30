@@ -40,6 +40,21 @@ Keep the first hosted version intentionally small:
 
 Team workspaces, comments, analytics, custom domains, live co-editing, and billing should wait until the private viewer and authorization model are proven.
 
+## Implemented first deployment
+
+The initial Hetzner deployment deliberately uses the server's local disk behind
+the same immutable asset boundary described above. PostgreSQL owns account and
+publication metadata; `/var/lib/cueport/assets` owns uploaded JPEG, PNG, WebP,
+and MP4 objects. The API is the only component allowed to join those two stores.
+
+This is not a dependency on Supabase. A future project can receive its own
+database and service, and Cueport can later replace the local asset adapter with
+S3-compatible object storage without changing the desktop document or viewer.
+
+The first owner is configured privately on the server. A one-time setup link
+sets the password; the password itself is never written to source control or a
+deployment secret.
+
 ## Required security invariants
 
 - The server derives ownership from the authenticated session, never from a request body.
