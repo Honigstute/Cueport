@@ -11,6 +11,7 @@ export type IconName =
   | 'eye'
   | 'eye-off'
   | 'fit-width'
+  | 'home'
   | 'image'
   | 'layers'
   | 'more'
@@ -42,6 +43,7 @@ export function Icon({ name, size = 18, ...props }: IconProps): React.JSX.Elemen
     eye: <><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.75" /></>,
     'eye-off': <><path d="m3 3 18 18" /><path d="M10.6 6.1A10.4 10.4 0 0 1 12 6c6.1 0 9.5 6 9.5 6a17.4 17.4 0 0 1-2.1 2.8M6.2 6.2C3.8 8 2.5 12 2.5 12s3.4 6 9.5 6c1 0 2-.2 2.8-.5" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>,
     'fit-width': <><rect x="4" y="3" width="16" height="18" rx="1.5" /><path d="M7 12h10m0 0-2.5-2.5M17 12l-2.5 2.5M7 12l2.5-2.5M7 12l2.5 2.5" /></>,
+    home: <><path d="m3 11 9-7 9 7" /><path d="M5.5 9.5V20h13V9.5M9.5 20v-6h5v6" /></>,
     image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 20" /></>,
     layers: <><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 16l9 5 9-5" /></>,
     more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,

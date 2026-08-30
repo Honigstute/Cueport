@@ -37,6 +37,7 @@ Keep the first hosted version intentionally small:
 - non-persistent viewer controls for Canvas/Fit width, viewport visibility,
   fold position, and zoom; these always start from the published settings and
   never modify the immutable revision;
+- a desktop-matched viewer top bar that can be fully hidden or restored with H;
 - publication upload, replace, unpublish, and revoke;
 - the existing presentation surface without editing controls;
 - access and error logs, database backups, and asset-retention cleanup.

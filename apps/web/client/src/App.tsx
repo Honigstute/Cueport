@@ -251,7 +251,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const [activeIndex, setActiveIndex] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [fitWidth, setFitWidth] = useState(0)
-  const openedFromDashboard = new URLSearchParams(location.search).get('from') === 'dashboard'
+  const [isInterfaceVisible, setIsInterfaceVisible] = useState(true)
 
   useEffect(() => {
     let active = true
@@ -260,6 +260,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
     setError(null)
     setActiveIndex(0)
     setZoom(1)
+    setIsInterfaceVisible(true)
     api<SharedPresentationResponse>(`/api/share/${encodeURIComponent(token)}`)
       .then((response) => {
         if (!active) return
@@ -316,6 +317,11 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
       if (event.key === 'ArrowLeft') { event.preventDefault(); navigate(-1) }
       if (event.key === 'ArrowRight') { event.preventDefault(); navigate(1) }
       if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.toLowerCase() === 'h') {
+        event.preventDefault()
+        if (!event.repeat) setIsInterfaceVisible((visible) => !visible)
+        return
+      }
       if (event.key.toLowerCase() === 'f') {
         event.preventDefault()
         setView((current) => current ? { ...current, mode: 'canvas' } : current)
@@ -348,20 +354,13 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const slide = assets.slides[activeIndex] ?? assets.slides[0] ?? null
 
   return (
-    <div className="public-viewer-shell app-shell chrome-hidden">
-      {openedFromDashboard && (
-        <a className="viewer-back" href="/">
-          <Icon name="arrow-left" size={18} />
-          <span>Presentations</span>
-        </a>
-      )}
+    <div className={`public-viewer-shell app-shell${isInterfaceVisible ? '' : ' web-viewer-interface-hidden'}`}>
       <ViewerControls
+        isVisible={isInterfaceVisible}
         mode={view.mode}
         onModeChange={(mode) => setView((current) => current ? { ...current, mode } : current)}
         onViewportMarkerChange={(viewportMarker) => setView((current) => current ? { ...current, viewportMarker } : current)}
         onViewportToggle={() => setView((current) => current ? { ...current, viewportEnabled: !current.viewportEnabled } : current)}
-        onZoomIn={() => zoomBy(1)}
-        onZoomOut={() => zoomBy(-1)}
         onZoomReset={() => setZoom(1)}
         viewportEnabled={view.viewportEnabled}
         viewportHeight={settings.viewport.height}

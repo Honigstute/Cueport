@@ -4,6 +4,7 @@ import { formatZoom } from '../../../../src/renderer/src/lib/zoom'
 import type { DisplayMode } from '../../../../src/renderer/src/types'
 
 interface ViewerControlsProps {
+  isVisible: boolean
   mode: DisplayMode
   viewportEnabled: boolean
   viewportHeight: number
@@ -12,12 +13,11 @@ interface ViewerControlsProps {
   onModeChange: (mode: DisplayMode) => void
   onViewportToggle: () => void
   onViewportMarkerChange: (marker: number | null) => void
-  onZoomIn: () => void
-  onZoomOut: () => void
   onZoomReset: () => void
 }
 
 export function ViewerControls({
+  isVisible,
   mode,
   viewportEnabled,
   viewportHeight,
@@ -26,8 +26,6 @@ export function ViewerControls({
   onModeChange,
   onViewportToggle,
   onViewportMarkerChange,
-  onZoomIn,
-  onZoomOut,
   onZoomReset
 }: ViewerControlsProps): React.JSX.Element {
   const [foldDraft, setFoldDraft] = useState(viewportMarker?.toString() ?? '')
@@ -51,41 +49,37 @@ export function ViewerControls({
   }
 
   return (
-    <nav aria-label="Presentation view" className="viewer-controls">
-      <div aria-label="View mode" className="viewer-control-group viewer-mode-switcher" role="group">
-        <button
-          aria-pressed={mode === 'canvas'}
-          data-active={mode === 'canvas'}
-          onClick={() => onModeChange('canvas')}
-          title="Canvas view · F"
-          type="button"
-        >
-          <Icon name="zoom" size={16} />
-          <span>Canvas</span>
-        </button>
-        <button
-          aria-pressed={mode === 'fit-width'}
-          data-active={mode === 'fit-width'}
-          onClick={() => onModeChange('fit-width')}
-          title="Fit width · G"
-          type="button"
-        >
-          <Icon name="fit-width" size={16} />
-          <span>Fit width</span>
-        </button>
-      </div>
+    <header
+      aria-hidden={!isVisible}
+      aria-label="Cueport controls"
+      className={`top-bar web-viewer-top-bar${isVisible ? '' : ' web-viewer-top-bar-hidden'}`}
+      inert={!isVisible ? true : undefined}
+    >
+      <div className="top-bar-content web-viewer-top-bar-content">
+        <div className="document-context web-viewer-document-context">
+          <a className="icon-button web-viewer-home" href="/" title="Back to presentations">
+            <Icon name="home" size={17} />
+            <span className="sr-only">Back to presentations</span>
+          </a>
+        </div>
 
-      {mode === 'canvas' && (
-        <>
-          <span aria-hidden="true" className="viewer-control-divider" />
-          <div className="viewer-control-group viewer-canvas-controls">
+        <div aria-label="View controls" className="view-controls">
+          <div
+            aria-hidden={mode !== 'canvas'}
+            aria-label="Canvas options"
+            className="canvas-options"
+            data-visible={mode === 'canvas'}
+            inert={mode !== 'canvas' ? true : undefined}
+            role="group"
+          >
             {viewportEnabled && (
-              <label className="viewer-fold" data-invalid={foldIsInvalid}>
+              <label className="topbar-viewport-marker" data-invalid={foldIsInvalid}>
                 <span>Set fold</span>
                 <input
                   aria-invalid={foldIsInvalid}
                   aria-label="Set fold in pixels"
                   inputMode="numeric"
+                  maxLength={4}
                   onBlur={() => foldIsInvalid && setFoldDraft(viewportMarker?.toString() ?? '')}
                   onChange={(event) => updateFold(event.target.value)}
                   onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
@@ -96,28 +90,55 @@ export function ViewerControls({
             )}
             <button
               aria-checked={viewportEnabled}
-              className="viewer-viewport-toggle"
+              className="view-option-button"
               data-active={viewportEnabled}
               onClick={onViewportToggle}
               role="switch"
               title="Show or hide viewport · V"
               type="button"
             >
-              <Icon name="viewport" size={16} />
-              <span>Viewport</span>
-              <i aria-hidden="true"><b /></i>
+              <span className="viewport-toggle-label">Viewport</span>
+              <span aria-hidden="true" className="toggle-track"><span className="toggle-thumb" /></span>
             </button>
-          </div>
-          <span aria-hidden="true" className="viewer-control-divider" />
-          <div aria-label="Zoom" className="viewer-control-group viewer-zoom-controls" role="group">
-            <button aria-label="Zoom out" onClick={onZoomOut} title="Zoom out · −" type="button">−</button>
-            <button className="viewer-zoom-level" onClick={onZoomReset} title="Actual size · 0" type="button">
+            <button
+              className="zoom-level-button"
+              data-actual={zoom === 1}
+              onClick={onZoomReset}
+              title="Show canvas at actual pixels · 0"
+              type="button"
+            >
               {formatZoom(zoom)}
             </button>
-            <button aria-label="Zoom in" onClick={onZoomIn} title="Zoom in · +" type="button">+</button>
           </div>
-        </>
-      )}
-    </nav>
+
+          <div aria-label="View mode" className="mode-switcher" role="group">
+            <button
+              aria-pressed={mode === 'canvas'}
+              className="mode-button"
+              data-active={mode === 'canvas'}
+              onClick={() => onModeChange('canvas')}
+              title="Canvas · F"
+              type="button"
+            >
+              <Icon name="zoom" size={16} />
+              <span>Canvas</span>
+            </button>
+            <button
+              aria-pressed={mode === 'fit-width'}
+              className="mode-button"
+              data-active={mode === 'fit-width'}
+              onClick={() => onModeChange('fit-width')}
+              title="Fit width · G"
+              type="button"
+            >
+              <Icon name="fit-width" size={16} />
+              <span>Fit width</span>
+            </button>
+          </div>
+        </div>
+
+        <div aria-hidden="true" className="top-actions web-viewer-top-actions" />
+      </div>
+    </header>
   )
 }
