@@ -13,7 +13,21 @@ test -f "$release/dist-client/index.html"
 ln -sfn "$release" /opt/cueport/current
 sudo /usr/bin/systemctl restart cueport.service
 sudo /usr/bin/systemctl is-active --quiet cueport.service
-curl --fail --silent --show-error http://127.0.0.1:3002/api/health >/dev/null
+
+# systemd reports the process active just before Node begins accepting sockets.
+# Wait briefly for the real health endpoint instead of racing application start.
+healthy=false
+for _attempt in {1..20}; do
+  if curl --fail --silent http://127.0.0.1:3002/api/health >/dev/null; then
+    healthy=true
+    break
+  fi
+  sleep 0.5
+done
+if [[ "$healthy" != true ]]; then
+  echo 'Cueport did not become healthy after deployment.' >&2
+  exit 1
+fi
 rm -f "$archive"
 
 # Releases are immutable and switching is atomic. Keep three so a rollback is
