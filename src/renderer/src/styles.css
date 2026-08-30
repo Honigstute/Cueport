@@ -1415,11 +1415,11 @@ html[data-platform="darwin"] .top-bar-content {
 
 .reference-picker-grid {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3) var(--space-2);
   grid-template-columns: repeat(2, minmax(0, 1fr));
   max-height: 292px;
   overflow-y: auto;
-  padding: 2px;
+  padding: 2px 0 var(--space-2);
   scrollbar-width: none;
 }
 
@@ -1432,18 +1432,20 @@ html[data-platform="darwin"] .top-bar-content {
   border-radius: var(--radius-sm);
   color: var(--ink-300);
   min-width: 0;
-  padding: var(--space-2);
+  padding: 6px;
   text-align: left;
   transition:
     background-color var(--duration-fast) ease,
-    color var(--duration-fast) ease,
-    scale var(--duration-fast) ease;
+    color var(--duration-fast) ease;
 }
 
-.reference-picker-grid button:hover,
-.reference-picker-grid button:focus-visible {
+.reference-picker-grid button:hover {
   background: var(--control-hover);
   color: var(--ink-100);
+}
+
+.reference-picker-grid button:focus-visible {
+  outline: none;
 }
 
 .reference-picker-grid button > span {
@@ -1457,12 +1459,20 @@ html[data-platform="darwin"] .top-bar-content {
 }
 
 .reference-picker-grid img {
+  display: block;
   height: 100%;
   object-fit: cover;
   object-position: top center;
-  outline: 1px solid var(--ui-outline);
-  outline-offset: -1px;
   width: 100%;
+}
+
+.reference-picker-grid button > span > .reference-picker-thumbnail-fallback {
+  align-items: center;
+  color: var(--ui-text-muted);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
 }
 
 .reference-picker-grid small {
@@ -1911,6 +1921,24 @@ html[data-slide-direction="previous"]::view-transition-new(cueport-slide) {
   z-index: 1;
 }
 
+/* The imported media owns this coordinate system. Web annotations rendered
+   here follow the image through fit-width, explicit zoom, and viewport scroll
+   without learning anything about canvas gutters or window chrome. */
+.artwork-content {
+  display: block;
+  flex: 0 0 auto;
+  isolation: isolate;
+  line-height: 0;
+  position: relative;
+  width: max-content;
+  z-index: 1;
+}
+
+.stage-fit-width .artwork-content,
+.viewport-scroll .artwork-content {
+  width: 100%;
+}
+
 /* The colored shadow is a second copy of the artwork, never a filter on the
    visible image. A small inset before the heavy blur keeps the glow soft and
    prevents a recognizable duplicate from appearing around the edges. */
@@ -2113,11 +2141,17 @@ html[data-slide-direction="previous"]::view-transition-new(cueport-slide) {
   transition: border-radius 180ms var(--ease-out);
 }
 
-.artwork-window-phone > :is(img, video) {
+.artwork-window-phone > .artwork-content > :is(img, video) {
   border-radius: var(--phone-screen-radius);
 }
 
-.stage[data-phone-browser-bars="true"] .artwork-window-phone > :is(img, video),
+.artwork-window-phone > .artwork-content {
+  border-radius: var(--phone-screen-radius);
+  overflow: hidden;
+}
+
+.stage[data-phone-browser-bars="true"] .artwork-window-phone > .artwork-content > :is(img, video),
+.stage[data-phone-browser-bars="true"] .artwork-window-phone > .artwork-content,
 .stage[data-phone-browser-bars="true"] .viewport-frame-phone .viewport-scroll {
   border-radius: 0 0 var(--phone-screen-radius) var(--phone-screen-radius);
 }
@@ -2238,7 +2272,8 @@ html[data-slide-direction="previous"]::view-transition-new(cueport-slide) {
 
 .stage[data-rounded="false"][data-frame="phone"] .artwork-card,
 .stage[data-rounded="false"][data-frame="phone"] .artwork-window-phone,
-.stage[data-rounded="false"][data-frame="phone"] .artwork-window-phone > :is(img, video),
+.stage[data-rounded="false"][data-frame="phone"] .artwork-window-phone > .artwork-content,
+.stage[data-rounded="false"][data-frame="phone"] .artwork-window-phone > .artwork-content > :is(img, video),
 .stage[data-rounded="false"][data-frame="phone"] .phone-browser-bar,
 .stage[data-rounded="false"][data-frame="phone"] .viewport-frame-phone,
 .stage[data-rounded="false"][data-frame="phone"] .viewport-frame-phone .viewport-frame-surface,

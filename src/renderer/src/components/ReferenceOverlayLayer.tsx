@@ -418,17 +418,7 @@ function ReferencePickerMenu({ references, onChoose, onClose, x, y }: ReferenceP
           {references.map((reference) => (
             <button key={reference.id} onClick={() => onChoose(reference)} role="menuitem" type="button">
               <span>
-                <img
-                  alt=""
-                  draggable={false}
-                  loading="lazy"
-                  onError={(event) => {
-                    if (reference.mimeType.startsWith('image/') && event.currentTarget.src !== reference.url) {
-                      event.currentTarget.src = reference.url
-                    }
-                  }}
-                  src={reference.thumbnailUrl || (reference.mimeType.startsWith('image/') ? reference.url : '')}
-                />
+                <ReferencePickerThumbnail reference={reference} />
                 {reference.mimeType === 'video/mp4' && (
                   <span aria-hidden="true" className="thumbnail-video-badge"><Icon name="play" size={15} /></span>
                 )}
@@ -442,6 +432,34 @@ function ReferencePickerMenu({ references, onChoose, onClose, x, y }: ReferenceP
       )}
     </div>,
     document.body
+  )
+}
+
+/**
+ * Saved and published media may expose a generated poster or only the original
+ * asset. Try each URL once so a missing poster never leaves an empty tile.
+ */
+function ReferencePickerThumbnail({ reference }: { reference: ReferenceAsset }): React.JSX.Element {
+  const candidates = [
+    reference.thumbnailUrl,
+    ...(reference.mimeType.startsWith('image/') ? [reference.url] : [])
+  ].filter((url, index, urls) => Boolean(url) && urls.indexOf(url) === index)
+  const [candidateIndex, setCandidateIndex] = useState(0)
+  const source = candidates[candidateIndex] ?? ''
+
+  if (!source) {
+    return <span aria-hidden="true" className="reference-picker-thumbnail-fallback"><Icon name="image" size={18} /></span>
+  }
+
+  return (
+    <img
+      alt=""
+      decoding="async"
+      draggable={false}
+      loading="lazy"
+      onError={() => setCandidateIndex((current) => current + 1)}
+      src={source}
+    />
   )
 }
 

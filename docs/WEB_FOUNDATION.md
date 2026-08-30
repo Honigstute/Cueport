@@ -46,7 +46,29 @@ Keep the first hosted version intentionally small:
 - the existing presentation surface without editing controls;
 - access and error logs, database backups, and asset-retention cleanup.
 
-Team workspaces, comments, analytics, custom domains, live co-editing, and billing should wait until the private viewer and authorization model are proven.
+Team workspaces, analytics, custom domains, live co-editing, and billing should wait until the private viewer and authorization model are proven.
+
+## Accounts and artwork discussions
+
+Cueport now has one protected owner plus invited member accounts. The owner can
+create, update, and remove members; PostgreSQL prevents the configured owner
+from being deleted, demoted, or renamed even if a future API route is wrong.
+Invitation URLs are single-use, expire after seven days, and let each member set
+their own password. Profiles contain the display name, optional title, and an
+optional compact JPEG/PNG/WebP avatar used beside comments.
+
+Published links require a signed-in Cueport account. Discussion threads belong
+to the presentation and a stable slide UUID. Their pin coordinates are stored
+as integer parts per million of the imported artwork—not the browser window,
+canvas gutter, frame bezel, or viewport—so fit-width, zoom, and responsive
+layouts cannot move the logical point. Thread creation plus its first comment,
+and final-comment removal plus thread cleanup, are transactional.
+
+Members may edit or delete their own comments. The owner may delete any comment
+or an entire thread. Comment author names and titles are snapshotted for audit
+history; deleted members appear as “Deleted account” while their old discussion
+text remains. The web client renders only HTTP(S) links and never injects comment
+HTML.
 
 ## Implemented first deployment
 

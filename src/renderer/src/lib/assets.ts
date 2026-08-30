@@ -88,6 +88,28 @@ function createThumbnail(image: HTMLImageElement): Promise<string> {
   return Promise.resolve(canvas.toDataURL('image/jpeg', 0.76))
 }
 
+function blobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => typeof reader.result === 'string'
+      ? resolve(reader.result)
+      : reject(new AssetImportError('The saved preview could not be read.'))
+    reader.onerror = () => reject(new AssetImportError('The saved preview could not be read.'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+/** Read an existing saved JPEG without another lossy canvas re-encode. */
+async function readPortableJpegDataUrl(url: string): Promise<string> {
+  const response = await fetch(url)
+  if (!response.ok) throw new AssetImportError('The saved preview is unavailable.')
+  const blob = await response.blob()
+  if (blob.type !== 'image/jpeg' || blob.size > 2_000_000) {
+    throw new AssetImportError('The saved preview is not a portable JPEG.')
+  }
+  return blobAsDataUrl(blob)
+}
+
 function createVideoThumbnail(video: HTMLVideoElement): string {
   const canvas = document.createElement('canvas')
   canvas.width = 320
@@ -265,27 +287,54 @@ export async function createPresentationPreviewDataUrl(slide: SlideAsset, logoUr
   }
 }
 
-/** Keep a generated video poster portable across repeated open/save cycles. */
-export async function createVideoPosterDataUrl(slide: SlideAsset): Promise<string | null> {
-  if (slide.mimeType !== 'video/mp4') return null
+/**
+ * Keep the lightweight 320×200 media preview portable across save, reopen,
+ * and web publication. Persisting image previews avoids decoding the original
+ * (potentially 150 MB) artwork every time a reference picker opens.
+ */
+export async function createPortableThumbnailDataUrl(slide: SlideAsset): Promise<string | null> {
   if (slide.thumbnailUrl.startsWith('data:image/jpeg;base64,') && slide.thumbnailUrl.length <= 2_000_000) {
     return slide.thumbnailUrl
   }
 
+  // Reopened projects already point at a saved poster. Reuse that lightweight
+  // image before touching the original media—especially for large MP4 files.
+  if (slide.thumbnailUrl && slide.thumbnailUrl !== slide.url) {
+    try {
+      return await readPortableJpegDataUrl(slide.thumbnailUrl)
+    } catch {
+      // A missing legacy poster falls through to the original media below.
+    }
+  }
+
   try {
-    const response = await fetch(slide.thumbnailUrl)
-    if (!response.ok) return null
-    const blob = await response.blob()
-    if (blob.type !== 'image/jpeg' || blob.size > 1_500_000) return null
-    return await new Promise((resolve) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
-      reader.onerror = () => resolve(null)
-      reader.readAsDataURL(blob)
-    })
+    if (slide.mimeType.startsWith('image/')) {
+      return await createThumbnail(await loadImage(slide.url, slide.name))
+    }
+    return (await loadVideo(slide.url, slide.name)).thumbnailUrl || null
   } catch {
     return null
   }
+}
+
+/** Prevent a large project save from opening hundreds of media decoders at once. */
+export async function createPortableThumbnailDataUrls(
+  slides: SlideAsset[],
+  concurrency = 4
+): Promise<Array<string | null>> {
+  const results = new Array<string | null>(slides.length)
+  let nextIndex = 0
+  const workerCount = Math.min(slides.length, Math.max(1, Math.floor(concurrency)))
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < slides.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await createPortableThumbnailDataUrl(slides[index])
+    }
+  }))
+
+  return results
 }
 
 export function revokeLocalAsset(url: string | null): void {

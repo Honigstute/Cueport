@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { createLogoAsset, createPresentationPreviewDataUrl, createSlideAsset, createVideoPosterDataUrl, revokeLocalAsset, revokeSlideAsset } from './lib/assets'
+import { createLogoAsset, createPortableThumbnailDataUrls, createPresentationPreviewDataUrl, createSlideAsset, revokeLocalAsset, revokeSlideAsset } from './lib/assets'
 import { normalizeHex } from './lib/colors'
 import { Filmstrip } from './components/Filmstrip'
 import { HelpDialog } from './components/HelpDialog'
@@ -447,22 +447,24 @@ export default function App(): React.JSX.Element {
     saveInFlightRef.current = true
     try {
       const previewDataUrl = await createPresentationPreviewDataUrl(state.slides[0], state.brand.logoUrl)
-      const slides = await Promise.all(state.slides.map(async (slide) => ({
+      const media = [...state.slides, ...state.references]
+      const portableThumbnails = await createPortableThumbnailDataUrls(media)
+      const slides = state.slides.map((slide, index) => ({
         id: slide.id,
         name: slide.name,
         width: slide.width,
         height: slide.height,
         sourceKey: slide.sourceKey,
-        thumbnailDataUrl: await createVideoPosterDataUrl(slide)
-      })))
-      const references = await Promise.all(state.references.map(async (reference) => ({
+        thumbnailDataUrl: portableThumbnails[index]
+      }))
+      const references = state.references.map((reference, index) => ({
         id: reference.id,
         name: reference.name,
         width: reference.width,
         height: reference.height,
         sourceKey: reference.sourceKey,
-        thumbnailDataUrl: await createVideoPosterDataUrl(reference)
-      })))
+        thumbnailDataUrl: portableThumbnails[state.slides.length + index]
+      }))
       const summary = await window.cueport.savePresentation({
         id: savedPresentation?.id ?? null,
         name,
@@ -977,7 +979,9 @@ export default function App(): React.JSX.Element {
           onClose={() => setIsPublishDialogOpen(false)}
           onPublish={async () => {
             if (!window.cueport || !savedPresentation) throw new Error('Save this presentation before publishing it.')
-            if (isPresentationDirty) await persistPresentation(savedPresentation.name)
+            // Always refresh portable thumbnails before publishing. This also
+            // migrates older clean projects whose original save had no posters.
+            await persistPresentation(savedPresentation.name)
             return window.cueport.publishPresentation(savedPresentation.id)
           }}
           presentationName={savedPresentation?.name ?? 'Unsaved presentation'}

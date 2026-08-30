@@ -7,11 +7,12 @@ import { nextZoomStop } from '../../../../src/renderer/src/lib/zoom'
 import type { BrandSettings, DisplayMode, ReferenceAsset, SlideAsset } from '../../../../src/renderer/src/types'
 import { PublicationCard, type PublishedPresentation } from './PublicationCard'
 import { ViewerControls } from './ViewerControls'
-
-interface SessionResponse {
-  authenticated: boolean
-  email?: string
-}
+import { AccountManagerDialog } from './AccountManagerDialog'
+import { AccountMenu } from './AccountMenu'
+import { CommentLayer } from './CommentLayer'
+import { ProfileDialog } from './ProfileDialog'
+import { api } from './api'
+import type { SessionResponse, UserProfile } from './accountTypes'
 
 interface SharedPresentationResponse {
   document: PresentationDocument
@@ -24,18 +25,9 @@ interface ViewerSettings {
   viewportMarker: number | null
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    credentials: 'same-origin',
-    headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...init?.headers
-    }
-  })
-  const body = await response.json().catch(() => null) as { error?: string } | null
-  if (!response.ok) throw new Error(body?.error || 'Cueport could not complete that request.')
-  return body as T
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return Boolean(target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'))
 }
 
 function Brand(): React.JSX.Element {
@@ -47,34 +39,47 @@ function Brand(): React.JSX.Element {
   )
 }
 
-function AccountForm({ mode, setupToken, onSuccess }: {
-  mode: 'login' | 'setup'
-  setupToken?: string
-  onSuccess: (email: string) => void
+function AccountForm({ mode, token, onSuccess }: {
+  mode: 'login' | 'setup' | 'activate'
+  token?: string
+  onSuccess: (user: UserProfile) => void
 }): React.JSX.Element {
-  const [email, setEmail] = useState('stevedotschreiner@gmail.com')
+  const [email, setEmail] = useState('')
+  const [invitedName, setInvitedName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  useEffect(() => {
+    if (mode !== 'activate' || !token) return
+    let active = true
+    api<{ email: string; displayName: string }>(`/api/auth/invite/${encodeURIComponent(token)}`)
+      .then((invite) => {
+        if (!active) return
+        setEmail(invite.email)
+        setInvitedName(invite.displayName)
+      })
+      .catch((cause) => active && setError(cause instanceof Error ? cause.message : 'This account setup link is unavailable.'))
+    return () => { active = false }
+  }, [mode, token])
+
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
-    if (mode === 'setup' && password !== confirmation) {
+    if (mode !== 'login' && password !== confirmation) {
       setError('The two passwords do not match.')
       return
     }
     setBusy(true)
     setError(null)
     try {
-      const result = await api<{ email: string }>(mode === 'setup' ? '/api/auth/setup' : '/api/auth/login', {
+      const endpoint = mode === 'setup' ? '/api/auth/setup' : mode === 'activate' ? '/api/auth/activate' : '/api/auth/login'
+      const result = await api<{ user: UserProfile }>(endpoint, {
         method: 'POST',
-        body: JSON.stringify(mode === 'setup'
-          ? { token: setupToken, password }
-          : { email, password })
+        body: JSON.stringify(mode === 'login' ? { email, password } : { token, password })
       })
-      onSuccess(result.email)
-      history.replaceState(null, '', '/')
+      onSuccess(result.user)
+      if (mode !== 'login') history.replaceState(null, '', '/')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-in failed.')
     } finally {
@@ -86,11 +91,13 @@ function AccountForm({ mode, setupToken, onSuccess }: {
     <main className="account-screen">
       <Brand />
       <form className="account-card" onSubmit={(event) => void submit(event)}>
-        <span className="web-eyebrow">Owner access</span>
-        <h1>{mode === 'setup' ? 'Create your Cueport password' : 'Sign in to Cueport'}</h1>
+        <span className="web-eyebrow">Cueport account</span>
+        <h1>{mode === 'setup' ? 'Create your owner password' : mode === 'activate' ? `Welcome${invitedName ? `, ${invitedName}` : ''}` : 'Sign in to Cueport'}</h1>
         <p>{mode === 'setup'
-          ? 'This finishes the private owner account on your server.'
-          : 'Manage published presentations and private client links.'}</p>
+          ? 'This finishes the protected owner account on your server.'
+          : mode === 'activate'
+            ? `Create a password for ${email || 'your invited account'}.`
+            : 'Open private presentations and join discussions.'}</p>
         {mode === 'login' && (
           <label>
             <span>Email</span>
@@ -100,7 +107,7 @@ function AccountForm({ mode, setupToken, onSuccess }: {
         <label>
           <span>Password</span>
           <input
-            autoComplete={mode === 'setup' ? 'new-password' : 'current-password'}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             minLength={12}
             onChange={(event) => setPassword(event.target.value)}
             required
@@ -108,7 +115,7 @@ function AccountForm({ mode, setupToken, onSuccess }: {
             value={password}
           />
         </label>
-        {mode === 'setup' && (
+        {mode !== 'login' && (
           <label>
             <span>Repeat password</span>
             <input autoComplete="new-password" minLength={12} onChange={(event) => setConfirmation(event.target.value)} required type="password" value={confirmation} />
@@ -116,19 +123,25 @@ function AccountForm({ mode, setupToken, onSuccess }: {
         )}
         {error && <p className="web-error" role="alert">{error}</p>}
         <button className="web-primary" disabled={busy} type="submit">
-          {busy ? 'Please wait…' : mode === 'setup' ? 'Create owner account' : 'Sign in'}
+          {busy ? 'Please wait…' : mode === 'setup' ? 'Create owner account' : mode === 'activate' ? 'Activate account' : 'Sign in'}
         </button>
       </form>
     </main>
   )
 }
 
-function Dashboard({ email, onLogout }: { email: string; onLogout: () => void }): React.JSX.Element {
+function Dashboard({ onLogout, onProfileChange, profile }: {
+  onLogout: () => void
+  onProfileChange: (profile: UserProfile) => void
+  profile: UserProfile
+}): React.JSX.Element {
   const [presentations, setPresentations] = useState<PublishedPresentation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [copyMessage, setCopyMessage] = useState<string | null>(null)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [accountsOpen, setAccountsOpen] = useState(false)
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -190,10 +203,7 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
     <main className="dashboard-screen">
       <header className="dashboard-header">
         <Brand />
-        <div>
-          <span>{email}</span>
-          <button onClick={onLogout} type="button">Sign out</button>
-        </div>
+        <AccountMenu onAccounts={() => setAccountsOpen(true)} onLogout={onLogout} onProfile={() => setProfileOpen(true)} profile={profile} />
       </header>
       <section className="dashboard-content">
         {error && <p className="web-error" role="alert">{error}</p>}
@@ -222,6 +232,30 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
           </div>
         )}
       </section>
+      {profileOpen && <ProfileDialog onClose={() => setProfileOpen(false)} onSaved={onProfileChange} profile={profile} />}
+      {accountsOpen && <AccountManagerDialog onClose={() => setAccountsOpen(false)} />}
+    </main>
+  )
+}
+
+function MemberHome({ onLogout, onProfileChange, profile }: {
+  onLogout: () => void
+  onProfileChange: (profile: UserProfile) => void
+  profile: UserProfile
+}): React.JSX.Element {
+  const [profileOpen, setProfileOpen] = useState(false)
+  return (
+    <main className="dashboard-screen member-home">
+      <header className="dashboard-header">
+        <Brand />
+        <AccountMenu onLogout={onLogout} onProfile={() => setProfileOpen(true)} profile={profile} />
+      </header>
+      <section className="member-home-message">
+        <Icon name="layers" size={24} />
+        <strong>Open a private presentation link</strong>
+        <span>Your Cueport account is ready. Use a link shared by the presentation owner to view layouts and join discussions.</span>
+      </section>
+      {profileOpen && <ProfileDialog onClose={() => setProfileOpen(false)} onSaved={onProfileChange} profile={profile} />}
     </main>
   )
 }
@@ -234,6 +268,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const [zoom, setZoom] = useState(1)
   const [fitWidth, setFitWidth] = useState(0)
   const [isInterfaceVisible, setIsInterfaceVisible] = useState(true)
+  const [commentsEnabled, setCommentsEnabled] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -243,6 +278,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
     setActiveIndex(0)
     setZoom(1)
     setIsInterfaceVisible(true)
+    setCommentsEnabled(false)
     api<SharedPresentationResponse>(`/api/share/${encodeURIComponent(token)}`)
       .then((response) => {
         if (!active) return
@@ -301,13 +337,18 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
+      if (event.isComposing || isTextEntry(event.target)) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === 'ArrowLeft') { event.preventDefault(); navigate(-1) }
       if (event.key === 'ArrowRight') { event.preventDefault(); navigate(1) }
-      if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key.toLowerCase() === 'h') {
         event.preventDefault()
         if (!event.repeat) setIsInterfaceVisible((visible) => !visible)
+        return
+      }
+      if (event.key.toLowerCase() === 'c') {
+        event.preventDefault()
+        if (!event.repeat) setCommentsEnabled((enabled) => !enabled)
         return
       }
       if (event.key.toLowerCase() === 'f') {
@@ -344,8 +385,10 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   return (
     <div className={`public-viewer-shell app-shell${isInterfaceVisible ? '' : ' web-viewer-interface-hidden'}`}>
       <ViewerControls
+        commentsEnabled={commentsEnabled}
         isVisible={isInterfaceVisible}
         mode={view.mode}
+        onCommentsToggle={() => setCommentsEnabled((enabled) => !enabled)}
         onModeChange={(mode) => setView((current) => current ? { ...current, mode } : current)}
         onViewportMarkerChange={(viewportMarker) => setView((current) => current ? { ...current, viewportMarker } : current)}
         onViewportToggle={() => setView((current) => current ? { ...current, viewportEnabled: !current.viewportEnabled } : current)}
@@ -381,6 +424,13 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
           viewportEnabled={view.viewportEnabled}
           viewportMarker={view.viewportMarker}
           zoom={view.mode === 'fit-width' && fitWidth ? 1 : zoom}
+          artworkOverlay={slide ? (
+            <CommentLayer
+              enabled={commentsEnabled && isInterfaceVisible}
+              shareToken={token}
+              slideId={slide.id}
+            />
+          ) : null}
         />
       </div>
       {assets.slides.length > 1 && (
@@ -393,19 +443,30 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
 export default function App(): React.JSX.Element {
   const shareMatch = location.pathname.match(/^\/p\/([^/]+)$/)
   const [session, setSession] = useState<SessionResponse | null>(null)
-  const setupToken = new URLSearchParams(location.search).get('setup') || undefined
+  const query = new URLSearchParams(location.search)
+  const setupToken = query.get('setup') || undefined
+  const activationToken = query.get('activate') || undefined
 
   useEffect(() => {
-    if (shareMatch) return
     api<SessionResponse>('/api/session').then(setSession).catch(() => setSession({ authenticated: false }))
   }, [shareMatch?.[1]])
 
-  if (shareMatch) return <SharedViewer token={decodeURIComponent(shareMatch[1])} />
   if (!session) return <main className="share-message"><Brand /><p>Loading Cueport…</p></main>
-  if (!session.authenticated) {
-    return <AccountForm mode={setupToken ? 'setup' : 'login'} onSuccess={(email) => setSession({ authenticated: true, email })} setupToken={setupToken} />
+  if (activationToken) {
+    return <AccountForm mode="activate" onSuccess={(user) => setSession({ authenticated: true, user })} token={activationToken} />
   }
-  return <Dashboard email={session.email || 'Owner'} onLogout={() => {
+  if (!session.authenticated) {
+    return <AccountForm mode={setupToken ? 'setup' : 'login'} onSuccess={(user) => setSession({ authenticated: true, user })} token={setupToken} />
+  }
+  if (!session.user) return <main className="share-message"><Brand /><p>Your account could not be loaded.</p></main>
+  if (shareMatch) return <SharedViewer token={decodeURIComponent(shareMatch[1])} />
+
+  const logout = (): void => {
     void api('/api/auth/logout', { method: 'POST', body: '{}' }).finally(() => setSession({ authenticated: false }))
-  }} />
+  }
+  const updateProfile = (user: UserProfile): void => setSession({ authenticated: true, user })
+
+  return session.user.role === 'owner'
+    ? <Dashboard onLogout={logout} onProfileChange={updateProfile} profile={session.user} />
+    : <MemberHome onLogout={logout} onProfileChange={updateProfile} profile={session.user} />
 }

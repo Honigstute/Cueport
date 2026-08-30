@@ -71,7 +71,7 @@ export interface PresentationDocumentMedia {
   /** Safe, relative object key. Never an absolute local filesystem path. */
   assetKey: string
   mimeType: PresentationMediaMimeType
-  /** Optional still image used before a video starts and in presentation lists. */
+  /** Optional lightweight still used before video playback and in media pickers. */
   posterKey?: string
 }
 

@@ -34,6 +34,8 @@ interface StageProps {
   onNavigate: (direction: SlideNavigationDirection) => void
   onZoomChange: (zoom: number) => void
   onFitWidthChange: (slideId: string, width: number) => void
+  /** Optional web collaboration UI rendered in source-artwork coordinates. */
+  artworkOverlay?: React.ReactNode
 }
 
 const MODE_LABELS: Record<DisplayMode, string> = {
@@ -169,7 +171,8 @@ export function Stage({
   onChooseMedia,
   onNavigate,
   onZoomChange,
-  onFitWidthChange
+  onFitWidthChange,
+  artworkOverlay
 }: StageProps): React.JSX.Element {
   const referenceLayerRef = useRef<ReferenceOverlayLayerHandle>(null)
   const isViewportActive = mode === 'canvas' && viewportEnabled
@@ -364,7 +367,12 @@ export function Stage({
     }
   }, [cancelZoomAnchor, isViewportActive, mode, onZoomChange, outerDrag.cancelMomentum, outerScrollElement, viewport.width, viewportDrag.cancelMomentum, zoom])
 
-  const artwork = slide ? <ArtworkMedia slide={slide} style={artworkStyle} /> : null
+  const artwork = slide ? (
+    <div className="artwork-content">
+      <ArtworkMedia slide={slide} style={artworkStyle} />
+      {artworkOverlay}
+    </div>
+  ) : null
 
   const framedArtwork = artwork && activeCanvasFrame !== 'none' ? (
     <div className={`artwork-window artwork-window-${activeCanvasFrame}`}>

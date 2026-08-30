@@ -4,12 +4,14 @@ import { formatZoom } from '../../../../src/renderer/src/lib/zoom'
 import type { DisplayMode } from '../../../../src/renderer/src/types'
 
 interface ViewerControlsProps {
+  commentsEnabled: boolean
   isVisible: boolean
   mode: DisplayMode
   viewportEnabled: boolean
   viewportHeight: number
   viewportMarker: number | null
   zoom: number
+  onCommentsToggle: () => void
   onModeChange: (mode: DisplayMode) => void
   onViewportToggle: () => void
   onViewportMarkerChange: (marker: number | null) => void
@@ -17,12 +19,14 @@ interface ViewerControlsProps {
 }
 
 export function ViewerControls({
+  commentsEnabled,
   isVisible,
   mode,
   viewportEnabled,
   viewportHeight,
   viewportMarker,
   zoom,
+  onCommentsToggle,
   onModeChange,
   onViewportToggle,
   onViewportMarkerChange,
@@ -61,6 +65,17 @@ export function ViewerControls({
             <Icon name="home" size={17} />
             <span className="sr-only">Back to presentations</span>
           </a>
+          <button
+            aria-label={commentsEnabled ? 'Hide comments' : 'Show comments'}
+            aria-pressed={commentsEnabled}
+            className="icon-button web-viewer-comments"
+            data-active={commentsEnabled}
+            onClick={onCommentsToggle}
+            title={`${commentsEnabled ? 'Hide' : 'Show'} comments · C`}
+            type="button"
+          >
+            <Icon name="comment" size={17} />
+          </button>
         </div>
 
         <div aria-label="View controls" className="view-controls">

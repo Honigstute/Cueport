@@ -31,6 +31,9 @@ import {
   storedAssetPath,
   storeUpload
 } from './storage'
+import { ApiError, jsonBody } from './http'
+import { publicProfile, registerAccountRoutes } from './accounts'
+import { registerDiscussionRoutes } from './discussions'
 
 const MAX_ASSET_BYTES = 500 * 1024 * 1024
 const MAX_PUBLICATION_BYTES = 2 * 1024 * 1024 * 1024
@@ -76,12 +79,6 @@ interface AssetRow extends QueryResultRow {
   owner_id: string
 }
 
-class ApiError extends Error {
-  constructor(public statusCode: number, message: string) {
-    super(message)
-  }
-}
-
 function readConfig(): ServerConfig {
   const required = (name: string): string => {
     const value = process.env[name]?.trim()
@@ -112,11 +109,6 @@ function addDays(days: number): Date {
   return value
 }
 
-function jsonBody(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(400, 'The request is invalid.')
-  return value as Record<string, unknown>
-}
-
 function readBearerToken(request: FastifyRequest): string | null {
   const header = request.headers.authorization
   return header?.startsWith('Bearer ') ? header.slice(7).trim() : null
@@ -130,6 +122,24 @@ function tokensEqual(left: string, right: string): boolean {
 
 function shareUrl(config: ServerConfig, tokenCipher: string | null): string | null {
   return tokenCipher ? `${config.publicUrl}/p/${decryptToken(tokenCipher, config.secret)}` : null
+}
+
+function loginEmail(value: unknown): string {
+  try {
+    return normalizeEmail(value)
+  } catch {
+    // Keep credential failures indistinguishable while still returning a
+    // controlled client error instead of an internal-server response.
+    throw new ApiError(401, 'The email address or password is incorrect.')
+  }
+}
+
+async function requestedPasswordHash(value: unknown): Promise<string> {
+  try {
+    return await hashPassword(value)
+  } catch (error) {
+    throw new ApiError(400, error instanceof Error ? error.message : 'Choose a valid password.')
+  }
 }
 
 async function start(): Promise<void> {
@@ -165,7 +175,13 @@ async function start(): Promise<void> {
 
   app.addHook('onRequest', async (request) => {
     if (!request.url.startsWith('/api/') || ['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return
-    if (readBearerToken(request) || request.url === '/api/auth/login' || request.url === '/api/auth/setup' || request.url === '/api/desktop/login') return
+    if (
+      readBearerToken(request) ||
+      request.url === '/api/auth/login' ||
+      request.url === '/api/auth/setup' ||
+      request.url === '/api/auth/activate' ||
+      request.url === '/api/desktop/login'
+    ) return
     const origin = request.headers.origin
     if (!origin || origin !== config.publicUrl) throw new ApiError(403, 'The request origin is not allowed.')
   })
@@ -190,7 +206,10 @@ async function start(): Promise<void> {
          WHERE tokens.token_hash = $1
            AND tokens.expires_at > now()
            AND users.id = tokens.user_id
-         RETURNING users.id, users.email, users.password_hash, users.role`,
+           AND users.deleted_at IS NULL
+         RETURNING users.id, users.email, users.password_hash, users.role,
+                   users.display_name, users.title, users.avatar_mime_type,
+                   users.avatar_updated_at, users.is_protected`,
         [hashToken(bearer)]
       )
       return result.rows[0] ?? null
@@ -199,18 +218,27 @@ async function start(): Promise<void> {
     const session = request.cookies[SESSION_COOKIE]
     if (!session) return null
     const result = await pool.query<UserRow>(
-      `SELECT users.id, users.email, users.password_hash, users.role
+      `SELECT users.id, users.email, users.password_hash, users.role,
+              users.display_name, users.title, users.avatar_mime_type,
+              users.avatar_updated_at, users.is_protected
        FROM cueport_sessions sessions
        JOIN cueport_users users ON users.id = sessions.user_id
-       WHERE sessions.token_hash = $1 AND sessions.expires_at > now()`,
+       WHERE sessions.token_hash = $1 AND sessions.expires_at > now()
+         AND users.deleted_at IS NULL`,
       [hashToken(session)]
     )
     return result.rows[0] ?? null
   }
 
-  async function requireOwner(request: FastifyRequest): Promise<UserRow> {
+  async function requireUser(request: FastifyRequest): Promise<UserRow> {
     const user = await userFromRequest(request)
-    if (!user || user.role !== 'owner') throw new ApiError(401, 'Sign in to continue.')
+    if (!user) throw new ApiError(401, 'Sign in to continue.')
+    return user
+  }
+
+  async function requireOwner(request: FastifyRequest): Promise<UserRow> {
+    const user = await requireUser(request)
+    if (user.role !== 'owner') throw new ApiError(403, 'Only the Cueport owner can do that.')
     return user
   }
 
@@ -237,7 +265,7 @@ async function start(): Promise<void> {
 
   app.get('/api/session', async (request) => {
     const user = await userFromRequest(request)
-    return user ? { authenticated: true, email: user.email } : { authenticated: false }
+    return user ? { authenticated: true, user: publicProfile(user) } : { authenticated: false }
   })
 
   app.post('/api/auth/setup', { config: { rateLimit: { max: 8, timeWindow: '15 minutes' } } }, async (request, reply) => {
@@ -245,26 +273,36 @@ async function start(): Promise<void> {
     if (typeof body.token !== 'string' || !tokensEqual(body.token, config.setupToken)) {
       throw new ApiError(403, 'This setup link is invalid or has expired.')
     }
-    const owner = await pool.query<UserRow>('SELECT * FROM cueport_users WHERE email = $1', [config.ownerEmail])
+    const owner = await pool.query<UserRow>(
+      `SELECT id, email, password_hash, role, display_name, title, avatar_mime_type,
+              avatar_updated_at, is_protected
+       FROM cueport_users WHERE email = $1 AND deleted_at IS NULL`,
+      [config.ownerEmail]
+    )
     const user = owner.rows[0]
     if (!user) throw new ApiError(500, 'The owner account is unavailable.')
     if (user.password_hash) throw new ApiError(409, 'The owner account has already been set up.')
-    const passwordHash = await hashPassword(body.password)
+    const passwordHash = await requestedPasswordHash(body.password)
     await pool.query('UPDATE cueport_users SET password_hash = $1, updated_at = now() WHERE id = $2', [passwordHash, user.id])
     await createSession(user.id, reply)
-    return { email: user.email }
+    return { user: publicProfile({ ...user, password_hash: passwordHash }) }
   })
 
   app.post('/api/auth/login', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const body = jsonBody(request.body)
-    const email = normalizeEmail(body.email)
-    const result = await pool.query<UserRow>('SELECT * FROM cueport_users WHERE email = $1', [email])
+    const email = loginEmail(body.email)
+    const result = await pool.query<UserRow>(
+      `SELECT id, email, password_hash, role, display_name, title, avatar_mime_type,
+              avatar_updated_at, is_protected
+       FROM cueport_users WHERE email = $1 AND deleted_at IS NULL`,
+      [email]
+    )
     const user = result.rows[0]
     if (!user || !(await verifyPassword(body.password, user.password_hash))) {
       throw new ApiError(401, 'The email address or password is incorrect.')
     }
     await createSession(user.id, reply)
-    return { email: user.email }
+    return { user: publicProfile(user) }
   })
 
   app.post('/api/auth/logout', async (request, reply) => {
@@ -276,10 +314,15 @@ async function start(): Promise<void> {
 
   app.post('/api/desktop/login', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request) => {
     const body = jsonBody(request.body)
-    const email = normalizeEmail(body.email)
-    const result = await pool.query<UserRow>('SELECT * FROM cueport_users WHERE email = $1', [email])
+    const email = loginEmail(body.email)
+    const result = await pool.query<UserRow>(
+      `SELECT id, email, password_hash, role, display_name, title, avatar_mime_type,
+              avatar_updated_at, is_protected
+       FROM cueport_users WHERE email = $1 AND deleted_at IS NULL`,
+      [email]
+    )
     const user = result.rows[0]
-    if (!user || !(await verifyPassword(body.password, user.password_hash))) {
+    if (!user || user.role !== 'owner' || !(await verifyPassword(body.password, user.password_hash))) {
       throw new ApiError(401, 'The email address or password is incorrect.')
     }
     const token = createOpaqueToken()
@@ -291,6 +334,16 @@ async function start(): Promise<void> {
     )
     return { token, email: user.email, expiresAt: expires.toISOString() }
   })
+
+  registerAccountRoutes({
+    app,
+    pool,
+    publicUrl: config.publicUrl,
+    requireUser,
+    requireOwner,
+    createSession
+  })
+  registerDiscussionRoutes({ app, pool, requireUser })
 
   app.post('/api/publications/drafts', async (request) => {
     const owner = await requireOwner(request)
@@ -557,6 +610,7 @@ async function start(): Promise<void> {
   })
 
   app.get('/api/share/:token', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (request) => {
+    await requireUser(request)
     const { token } = request.params as { token: string }
     if (token.length < 32 || token.length > 128) throw new ApiError(404, 'This presentation link is unavailable.')
     const result = await pool.query<{
@@ -586,6 +640,7 @@ async function start(): Promise<void> {
   })
 
   app.get('/api/share/:token/assets/:assetId', { config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, async (request, reply) => {
+    await requireUser(request)
     const { token, assetId } = request.params as { token: string; assetId: string }
     const result = await pool.query<{
       revision_id: string

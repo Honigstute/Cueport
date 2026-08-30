@@ -4,15 +4,36 @@ set -euo pipefail
 archive=/var/lib/cueport-deploy/release.tar.gz
 releases=/opt/cueport/releases
 release="$releases/$(date -u +%Y%m%dT%H%M%SZ)"
+previous="$(readlink -f /opt/cueport/current 2>/dev/null || true)"
+service_stopped=false
+release_switched=false
+
+restore_running_release() {
+  if [[ "$service_stopped" == true ]]; then
+    if [[ "$release_switched" == true && -n "$previous" && -d "$previous" ]]; then
+      ln -sfn "$previous" /opt/cueport/current
+    fi
+    sudo /usr/bin/systemctl start cueport.service
+  fi
+}
+trap restore_running_release EXIT
 
 test -f "$archive"
+# Schema changes and immutable asset metadata advance together. Capture a
+# consistent recovery point before switching releases. Stopping the writer
+# keeps the database dump and asset archive from describing different moments.
+sudo /usr/bin/systemctl stop cueport.service
+service_stopped=true
+sudo /usr/local/sbin/cueport-backup
 install -d -m 0755 "$release"
 tar -xzf "$archive" -C "$release"
 test -f "$release/dist-server/index.mjs"
 test -f "$release/dist-client/index.html"
 ln -sfn "$release" /opt/cueport/current
-sudo /usr/bin/systemctl restart cueport.service
+release_switched=true
+sudo /usr/bin/systemctl start cueport.service
 sudo /usr/bin/systemctl is-active --quiet cueport.service
+service_stopped=false
 
 # systemd reports the process active just before Node begins accepting sockets.
 # Wait briefly for the real health endpoint instead of racing application start.
@@ -26,9 +47,14 @@ for _attempt in {1..20}; do
 done
 if [[ "$healthy" != true ]]; then
   echo 'Cueport did not become healthy after deployment.' >&2
+  if [[ -n "$previous" && -d "$previous" ]]; then
+    ln -sfn "$previous" /opt/cueport/current
+    sudo /usr/bin/systemctl restart cueport.service
+  fi
   exit 1
 fi
 rm -f "$archive"
+trap - EXIT
 
 # Releases are immutable and switching is atomic. Keep three so a rollback is
 # immediate, while preventing old web builds from accumulating indefinitely.

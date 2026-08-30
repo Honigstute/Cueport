@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Exercise a candidate release against a disposable database and asset root.
+# This intentionally never touches the live Cueport process, database, or files.
+archive="${1:-/tmp/cueport-candidate.tar.gz}"
+smoke_script="${2:-/tmp/server-smoke-test.mjs}"
+test_port="${CUEPORT_TEST_PORT:-33004}"
+test_database="cueport_agent_test_$(date -u +%Y%m%d%H%M%S)_$$"
+test_root="$(mktemp -d /var/tmp/cueport-isolated.XXXXXX)"
+app_pid=''
+
+cleanup() {
+  set +e
+  if [[ -n "$app_pid" ]]; then
+    kill "$app_pid" 2>/dev/null
+    wait "$app_pid" 2>/dev/null
+  fi
+  if [[ "$test_database" == cueport_agent_test_* ]]; then
+    runuser -u postgres -- dropdb --if-exists "$test_database" >/dev/null 2>&1
+  fi
+  if [[ "$test_root" == /var/tmp/cueport-isolated.* && -d "$test_root" ]]; then
+    rm -rf -- "$test_root"
+  fi
+}
+trap cleanup EXIT
+
+test -f "$archive"
+test -f "$smoke_script"
+test -r /etc/cueport/cueport.env
+
+set -a
+# shellcheck disable=SC1091 -- production configuration is installed by provisioning.
+source /etc/cueport/cueport.env
+set +a
+
+: "${CUEPORT_DATABASE_URL:?CUEPORT_DATABASE_URL is required}"
+: "${CUEPORT_OWNER_EMAIL:?CUEPORT_OWNER_EMAIL is required}"
+: "${CUEPORT_INITIAL_SETUP_TOKEN:?CUEPORT_INITIAL_SETUP_TOKEN is required}"
+: "${CUEPORT_SECRET:?CUEPORT_SECRET is required}"
+
+if ss -ltn "sport = :$test_port" | grep -q LISTEN; then
+  echo "Port $test_port is already in use." >&2
+  exit 1
+fi
+
+test_database_url="$(/usr/bin/node -e '
+  const url = new URL(process.argv[1]);
+  url.pathname = `/${process.argv[2]}`;
+  process.stdout.write(url.toString());
+' "$CUEPORT_DATABASE_URL" "$test_database")"
+
+runuser -u postgres -- createdb --owner=cueport_app "$test_database"
+mkdir -p "$test_root/release" "$test_root/storage"
+tar --warning=no-unknown-keyword -xzf "$archive" -C "$test_root/release"
+test -f "$test_root/release/dist-server/index.mjs"
+test -f "$test_root/release/dist-client/index.html"
+chown -R cueport:cueport "$test_root"
+
+runuser -u cueport -- env \
+  NODE_ENV=production \
+  CUEPORT_HOST=127.0.0.1 \
+  CUEPORT_PORT="$test_port" \
+  CUEPORT_PUBLIC_URL="http://127.0.0.1:$test_port" \
+  CUEPORT_DATABASE_URL="$test_database_url" \
+  CUEPORT_STORAGE_ROOT="$test_root/storage" \
+  CUEPORT_OWNER_EMAIL="$CUEPORT_OWNER_EMAIL" \
+  CUEPORT_INITIAL_SETUP_TOKEN="$CUEPORT_INITIAL_SETUP_TOKEN" \
+  CUEPORT_SECRET="$CUEPORT_SECRET" \
+  CUEPORT_CLIENT_ROOT="$test_root/release/dist-client" \
+  /usr/bin/node "$test_root/release/dist-server/index.mjs" \
+  >"$test_root/server.log" 2>&1 &
+app_pid=$!
+
+healthy=false
+for _attempt in {1..40}; do
+  if curl --fail --silent "http://127.0.0.1:$test_port/api/health" >/dev/null; then
+    healthy=true
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$healthy" != true ]]; then
+  cat "$test_root/server.log" >&2
+  exit 1
+fi
+
+api_token="$(openssl rand -hex 32)"
+token_hash="$(printf '%s' "$api_token" | sha256sum | cut -d' ' -f1)"
+runuser -u postgres -- psql --dbname "$test_database" --set ON_ERROR_STOP=1 --quiet --command \
+  "INSERT INTO cueport_api_tokens (token_hash, user_id, label, expires_at)
+   SELECT '$token_hash', id, 'isolated smoke', now() + interval '1 hour'
+   FROM cueport_users WHERE role = 'owner' AND is_protected = true;"
+
+CUEPORT_SMOKE_BASE_URL="http://127.0.0.1:$test_port" \
+CUEPORT_SMOKE_PUBLIC_URL="http://127.0.0.1:$test_port" \
+CUEPORT_SMOKE_TOKEN="$api_token" \
+CUEPORT_SMOKE_ACCOUNTS=true \
+/usr/bin/node "$smoke_script"

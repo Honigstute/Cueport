@@ -78,7 +78,9 @@ Publishing from the desktop app:
 4. Publish, then copy the private link.
 
 The owner dashboard is hosted at `https://cueport.steveschreiner.de`. It lists
-published revisions and can copy, disable, or delete client links.
+published revisions, manages invited member profiles, and can copy, disable, or
+delete client links. Signed-in members can open shared presentations and use C
+or the comment button to join artwork-anchored discussions.
 
 ## Deployment boundary
 

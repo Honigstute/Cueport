@@ -465,7 +465,7 @@ function configurePresentationHandlers(): void {
       const url = localAssetUrl(sourceKey)
       const thumbnailUrl = slide.posterKey
         ? localAssetUrl(registerAssetPath(resolveProjectAsset(directory, slide.posterKey)))
-        : url
+        : slide.mimeType.startsWith('image/') ? url : ''
       return { ...slide, sourceKey, url, thumbnailUrl }
     })
     const references = project.references.map((reference) => {
@@ -474,7 +474,7 @@ function configurePresentationHandlers(): void {
       const url = localAssetUrl(sourceKey)
       const thumbnailUrl = reference.posterKey
         ? localAssetUrl(registerAssetPath(resolveProjectAsset(directory, reference.posterKey)))
-        : url
+        : reference.mimeType.startsWith('image/') ? url : ''
       return { ...reference, sourceKey, url, thumbnailUrl }
     })
     const brand = project.brand
