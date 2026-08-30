@@ -3,7 +3,9 @@ import type { PresentationDocument } from '../../../../src/shared/presentation'
 import { Stage } from '../../../../src/renderer/src/components/Stage'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
 import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
-import type { BrandSettings, ReferenceAsset, SlideAsset } from '../../../../src/renderer/src/types'
+import { nextZoomStop } from '../../../../src/renderer/src/lib/zoom'
+import type { BrandSettings, DisplayMode, ReferenceAsset, SlideAsset } from '../../../../src/renderer/src/types'
+import { ViewerControls } from './ViewerControls'
 
 interface SessionResponse {
   authenticated: boolean
@@ -22,6 +24,12 @@ interface PublishedPresentation {
 interface SharedPresentationResponse {
   document: PresentationDocument
   assets: Record<string, string>
+}
+
+interface ViewerSettings {
+  mode: DisplayMode
+  viewportEnabled: boolean
+  viewportMarker: number | null
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -238,6 +246,7 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
 
 function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const [shared, setShared] = useState<SharedPresentationResponse | null>(null)
+  const [view, setView] = useState<ViewerSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
   const [zoom, setZoom] = useState(1)
@@ -245,9 +254,26 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const openedFromDashboard = new URLSearchParams(location.search).get('from') === 'dashboard'
 
   useEffect(() => {
+    let active = true
+    setShared(null)
+    setView(null)
+    setError(null)
+    setActiveIndex(0)
+    setZoom(1)
     api<SharedPresentationResponse>(`/api/share/${encodeURIComponent(token)}`)
-      .then(setShared)
-      .catch((cause) => setError(cause instanceof Error ? cause.message : 'This presentation is unavailable.'))
+      .then((response) => {
+        if (!active) return
+        setShared(response)
+        setView({
+          mode: response.document.settings.mode,
+          viewportEnabled: response.document.settings.viewportEnabled,
+          viewportMarker: response.document.settings.viewportMarker
+        })
+      })
+      .catch((cause) => {
+        if (active) setError(cause instanceof Error ? cause.message : 'This presentation is unavailable.')
+      })
+    return () => { active = false }
   }, [token])
 
   const assets = useMemo(() => {
@@ -279,17 +305,45 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
     setActiveIndex((current) => Math.max(0, Math.min(assets.slides.length - 1, current + direction)))
   }, [assets.slides.length])
 
+  const zoomBy = useCallback((direction: -1 | 1): void => {
+    setView((current) => current ? { ...current, mode: 'canvas' } : current)
+    setZoom((current) => nextZoomStop(current, direction))
+  }, [])
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
       if (event.key === 'ArrowLeft') { event.preventDefault(); navigate(-1) }
       if (event.key === 'ArrowRight') { event.preventDefault(); navigate(1) }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        setView((current) => current ? { ...current, mode: 'canvas' } : current)
+      }
+      if (event.key.toLowerCase() === 'g') {
+        event.preventDefault()
+        setView((current) => current ? { ...current, mode: 'fit-width' } : current)
+      }
+      if (event.key.toLowerCase() === 'v') {
+        event.preventDefault()
+        setView((current) => current?.mode === 'canvas'
+          ? { ...current, viewportEnabled: !current.viewportEnabled }
+          : current)
+      }
+      if (event.key === '0') {
+        event.preventDefault()
+        setView((current) => current ? { ...current, mode: 'canvas' } : current)
+        setZoom(1)
+      }
+      if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomBy(1) }
+      if (event.key === '-' || event.key === '_') { event.preventDefault(); zoomBy(-1) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [navigate])
+  }, [navigate, zoomBy])
 
   if (error) return <main className="share-message"><Brand /><h1>Presentation unavailable</h1><p>{error}</p></main>
-  if (!shared || !assets.brand) return <main className="share-message"><Brand /><p>Loading presentation…</p></main>
+  if (!shared || !assets.brand || !view) return <main className="share-message"><Brand /><p>Loading presentation…</p></main>
   const settings = shared.document.settings
   const slide = assets.slides[activeIndex] ?? assets.slides[0] ?? null
 
@@ -301,6 +355,19 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
           <span>Presentations</span>
         </a>
       )}
+      <ViewerControls
+        mode={view.mode}
+        onModeChange={(mode) => setView((current) => current ? { ...current, mode } : current)}
+        onViewportMarkerChange={(viewportMarker) => setView((current) => current ? { ...current, viewportMarker } : current)}
+        onViewportToggle={() => setView((current) => current ? { ...current, viewportEnabled: !current.viewportEnabled } : current)}
+        onZoomIn={() => zoomBy(1)}
+        onZoomOut={() => zoomBy(-1)}
+        onZoomReset={() => setZoom(1)}
+        viewportEnabled={view.viewportEnabled}
+        viewportHeight={settings.viewport.height}
+        viewportMarker={view.viewportMarker}
+        zoom={zoom}
+      />
       <div className="workspace">
         <Stage
           background={settings.background}
@@ -313,7 +380,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
           canvasStartAtTop={settings.canvasStartAtTop}
           chromeMode="hidden"
           isImporting={false}
-          mode={settings.mode}
+          mode={view.mode}
           onChooseMedia={() => undefined}
           onFitWidthChange={(_slideId, width) => setFitWidth(width)}
           onNavigate={navigate}
@@ -324,9 +391,9 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
           references={assets.references}
           slide={slide}
           viewport={settings.viewport}
-          viewportEnabled={settings.viewportEnabled}
-          viewportMarker={settings.viewportMarker}
-          zoom={settings.mode === 'fit-width' && fitWidth ? 1 : zoom}
+          viewportEnabled={view.viewportEnabled}
+          viewportMarker={view.viewportMarker}
+          zoom={view.mode === 'fit-width' && fitWidth ? 1 : zoom}
         />
       </div>
       {assets.slides.length > 1 && (
