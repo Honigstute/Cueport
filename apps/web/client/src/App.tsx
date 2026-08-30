@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PresentationDocument } from '../../../../src/shared/presentation'
 import { Stage } from '../../../../src/renderer/src/components/Stage'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
+import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
 import type { BrandSettings, ReferenceAsset, SlideAsset } from '../../../../src/renderer/src/types'
 
 interface SessionResponse {
@@ -127,6 +128,7 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [copyMessage, setCopyMessage] = useState<string | null>(null)
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -157,9 +159,19 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
 
   const copy = async (presentation: PublishedPresentation): Promise<void> => {
     if (!presentation.shareUrl) return
-    await navigator.clipboard.writeText(presentation.shareUrl)
-    setCopiedId(presentation.id)
-    window.setTimeout(() => setCopiedId((current) => current === presentation.id ? null : current), 1800)
+    setCopyMessage(null)
+    try {
+      await copyTextToClipboard(presentation.shareUrl)
+      setCopiedId(presentation.id)
+      setCopyMessage('Private link copied.')
+      window.setTimeout(() => {
+        setCopiedId((current) => current === presentation.id ? null : current)
+        setCopyMessage(null)
+      }, 2200)
+    } catch (cause) {
+      setCopiedId(null)
+      setCopyMessage(cause instanceof Error ? cause.message : 'The private link could not be copied.')
+    }
   }
 
   return (
@@ -181,6 +193,7 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
           <button className="web-secondary" onClick={() => void refresh()} type="button">Refresh</button>
         </div>
         {error && <p className="web-error" role="alert">{error}</p>}
+        {copyMessage && <p className={copiedId ? 'web-notice' : 'web-error'} role="status">{copyMessage}</p>}
         {loading ? (
           <div className="dashboard-empty">Loading presentations…</div>
         ) : presentations.length === 0 ? (
@@ -208,7 +221,7 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
                       <button className="web-primary" onClick={() => void copy(presentation)} type="button">
                         {copiedId === presentation.id ? 'Copied' : 'Copy link'}
                       </button>
-                      <a href={presentation.shareUrl} rel="noreferrer" target="_blank">Open</a>
+                      <a href={`${presentation.shareUrl}?from=dashboard`}>Open</a>
                       <button onClick={() => void revoke(presentation)} type="button">Disable link</button>
                     </>
                   ) : <span className="publication-revoked">Link disabled — publish again to create a new one.</span>}
@@ -229,6 +242,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const [activeIndex, setActiveIndex] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [fitWidth, setFitWidth] = useState(0)
+  const openedFromDashboard = new URLSearchParams(location.search).get('from') === 'dashboard'
 
   useEffect(() => {
     api<SharedPresentationResponse>(`/api/share/${encodeURIComponent(token)}`)
@@ -281,6 +295,12 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
 
   return (
     <div className="public-viewer-shell app-shell chrome-hidden">
+      {openedFromDashboard && (
+        <a className="viewer-back" href="/">
+          <Icon name="arrow-left" size={18} />
+          <span>Presentations</span>
+        </a>
+      )}
       <div className="workspace">
         <Stage
           background={settings.background}

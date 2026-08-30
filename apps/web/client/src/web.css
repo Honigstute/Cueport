@@ -22,6 +22,26 @@
   z-index: 40;
 }
 
+.viewer-back {
+  align-items: center;
+  background: var(--ui-input);
+  border: 1px solid var(--ui-outline);
+  border-radius: var(--radius-round);
+  color: var(--ui-text);
+  display: inline-flex;
+  font-weight: 620;
+  gap: 7px;
+  left: 16px;
+  min-height: 38px;
+  padding: 0 13px 0 10px;
+  position: fixed;
+  text-decoration: none;
+  top: 16px;
+  z-index: 50;
+}
+
+.viewer-back:hover { background: var(--ui-hover); }
+
 .web-brand {
   align-items: center;
   display: inline-flex;
@@ -150,6 +170,16 @@
   border: 1px solid color-mix(in srgb, var(--error) 44%, transparent);
   border-radius: var(--radius-sm);
   color: var(--error);
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.web-notice {
+  background: color-mix(in srgb, var(--ui-active) 16%, transparent);
+  border: 1px solid var(--ui-active);
+  border-radius: var(--radius-sm);
+  color: var(--ui-text);
   line-height: 1.45;
   margin: 0;
   padding: 10px 12px;

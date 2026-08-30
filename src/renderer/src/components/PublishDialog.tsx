@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { PublishingResult, PublishingStatus } from '../../../shared/projects'
+import { copyTextToClipboard } from '../lib/clipboard'
 
 interface PublishDialogProps {
   presentationName: string
@@ -75,6 +76,18 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
     }
   }
 
+  const copyLink = async (): Promise<void> => {
+    if (!result) return
+    setError(null)
+    try {
+      await copyTextToClipboard(result.shareUrl)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2200)
+    } catch (cause) {
+      setError(cleanError(cause, 'The private link could not be copied.'))
+    }
+  }
+
   return createPortal(
     <div
       className="dialog-backdrop publish-dialog-backdrop"
@@ -117,10 +130,8 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
             <input aria-label="Private presentation link" readOnly value={result.shareUrl} />
             {error && <p className="field-error rename-error">{error}</p>}
             <div className="rename-dialog-actions">
-              <button onClick={onClose} type="button">Done</button>
-              <button className="primary" onClick={() => {
-                void navigator.clipboard.writeText(result.shareUrl).then(() => setCopied(true))
-              }} type="button">{copied ? 'Copied' : 'Copy link'}</button>
+              <button onClick={onClose} type="button">Back to presentation</button>
+              <button className="primary" onClick={() => void copyLink()} type="button">{copied ? 'Copied' : 'Copy link'}</button>
             </div>
           </div>
         ) : (
