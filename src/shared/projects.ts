@@ -1,5 +1,8 @@
 import type { PresentationAssetMimeType, PresentationDocument, PresentationMediaMimeType, PresentationSettings } from './presentation'
 
+/** Reserved upload key for the recoverable desktop home-card preview. */
+export const PUBLICATION_PREVIEW_ASSET_KEY = 'cueport/preview.jpg'
+
 /**
  * Desktop runtime contracts shared by Electron and the renderer.
  * The portable on-disk format lives in presentation.ts; opaque source keys and

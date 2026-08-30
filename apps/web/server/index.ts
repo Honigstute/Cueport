@@ -9,7 +9,12 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import type { QueryResultRow } from 'pg'
 import { parsePresentationDocument, type PresentationDocument } from '../../../src/shared/presentation'
 import { createDatabase, runMigrations, type AuthenticatedUser, withTransaction } from './database'
-import { collectExpectedAssets } from './presentationAssets'
+import { PUBLICATION_PREVIEW_ASSET_KEY } from '../../../src/shared/projects'
+import {
+  collectExpectedAssets,
+  normalizePresentationName,
+  preferredDashboardThumbnailKeys
+} from './presentationAssets'
 import {
   createOpaqueToken,
   decryptToken,
@@ -295,7 +300,8 @@ async function start(): Promise<void> {
       throw new ApiError(400, 'Use a PNG, JPEG, or WebP client mark for web publishing. SVG remains available in the desktop app.')
     }
     if (!Array.isArray(body?.assets)) throw new ApiError(400, 'The publication has no asset list.')
-    const expected = collectExpectedAssets(document)
+    const includePreview = body.assets.some((asset) => asset?.key === PUBLICATION_PREVIEW_ASSET_KEY)
+    const expected = collectExpectedAssets(document, includePreview)
     const provided = new Map<string, DraftAssetInput>()
     let totalBytes = 0
     for (const asset of body.assets) {
@@ -451,15 +457,75 @@ async function start(): Promise<void> {
       [owner.id]
     )
     return {
-      presentations: result.rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        updatedAt: row.updated_at.toISOString(),
-        revisionNumber: row.revision_number,
-        slideCount: row.document?.slides.length ?? 0,
-        shareUrl: shareUrl(config, row.share_token_cipher)
-      }))
+      presentations: result.rows.map((row) => {
+        const document = row.document ? parsePresentationDocument(row.document) : null
+        return {
+          id: row.id,
+          name: row.name,
+          updatedAt: row.updated_at.toISOString(),
+          revisionNumber: row.revision_number,
+          slideCount: document?.slides.length ?? 0,
+          shareUrl: shareUrl(config, row.share_token_cipher),
+          thumbnailUrl: document && preferredDashboardThumbnailKeys(document).length > 0
+            ? `/api/presentations/${row.id}/thumbnail?v=${row.revision_number ?? 0}`
+            : null
+        }
+      })
     }
+  })
+
+  app.get('/api/presentations/:presentationId/thumbnail', async (request, reply) => {
+    const owner = await requireOwner(request)
+    const { presentationId } = request.params as { presentationId: string }
+    const published = await pool.query<{ revision_id: string; document: unknown }>(
+      `SELECT revisions.id AS revision_id, revisions.document
+       FROM cueport_presentations presentations
+       JOIN cueport_revisions revisions ON revisions.id = presentations.published_revision_id
+       WHERE presentations.id = $1 AND presentations.owner_id = $2`,
+      [presentationId, owner.id]
+    )
+    const row = published.rows[0]
+    if (!row) throw new ApiError(404, 'The presentation thumbnail is unavailable.')
+    const preferredKeys = preferredDashboardThumbnailKeys(parsePresentationDocument(row.document))
+    const assets = await pool.query<{
+      asset_key: string
+      mime_type: string
+      storage_name: string
+    }>(
+      `SELECT asset_key, mime_type, storage_name
+       FROM cueport_revision_assets
+       WHERE revision_id = $1 AND asset_key = ANY($2::text[]) AND uploaded_at IS NOT NULL`,
+      [row.revision_id, preferredKeys]
+    )
+    const byKey = new Map(assets.rows.map((asset) => [asset.asset_key, asset]))
+    const asset = preferredKeys.map((key) => byKey.get(key)).find(Boolean)
+    if (!asset || !asset.mime_type.startsWith('image/')) {
+      throw new ApiError(404, 'The presentation thumbnail is unavailable.')
+    }
+    const filePath = storedAssetPath(config.storageRoot, row.revision_id, asset.storage_name)
+    const file = await stat(filePath)
+    reply.header('Cache-Control', 'private, no-store')
+    reply.header('Content-Length', file.size)
+    reply.type(asset.mime_type)
+    return reply.send(openStoredAsset(filePath))
+  })
+
+  app.patch('/api/presentations/:presentationId', async (request) => {
+    const owner = await requireOwner(request)
+    const { presentationId } = request.params as { presentationId: string }
+    let name: string
+    try {
+      name = normalizePresentationName(jsonBody(request.body).name)
+    } catch (error) {
+      throw new ApiError(400, error instanceof Error ? error.message : 'Enter a presentation name.')
+    }
+    const result = await pool.query(
+      `UPDATE cueport_presentations SET name = $1, updated_at = now()
+       WHERE id = $2 AND owner_id = $3`,
+      [name, presentationId, owner.id]
+    )
+    if (!result.rowCount) throw new ApiError(404, 'The presentation does not exist.')
+    return { success: true, name }
   })
 
   app.post('/api/presentations/:presentationId/revoke', async (request) => {

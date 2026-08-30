@@ -5,20 +5,12 @@ import { Icon } from '../../../../src/renderer/src/components/Icon'
 import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
 import { nextZoomStop } from '../../../../src/renderer/src/lib/zoom'
 import type { BrandSettings, DisplayMode, ReferenceAsset, SlideAsset } from '../../../../src/renderer/src/types'
+import { PublicationCard, type PublishedPresentation } from './PublicationCard'
 import { ViewerControls } from './ViewerControls'
 
 interface SessionResponse {
   authenticated: boolean
   email?: string
-}
-
-interface PublishedPresentation {
-  id: string
-  name: string
-  updatedAt: string
-  revisionNumber: number | null
-  slideCount: number
-  shareUrl: string | null
 }
 
 interface SharedPresentationResponse {
@@ -153,15 +145,17 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
 
   useEffect(() => { void refresh() }, [refresh])
 
-  const revoke = async (presentation: PublishedPresentation): Promise<void> => {
-    if (!presentation.shareUrl || !confirm(`Disable the client link for “${presentation.name}”?`)) return
-    await api(`/api/presentations/${presentation.id}/revoke`, { method: 'POST', body: '{}' })
-    await refresh()
-  }
-
   const remove = async (presentation: PublishedPresentation): Promise<void> => {
     if (!confirm(`Permanently delete “${presentation.name}” and all uploaded revisions?`)) return
     await api(`/api/presentations/${presentation.id}`, { method: 'DELETE', body: '{}' })
+    await refresh()
+  }
+
+  const rename = async (presentation: PublishedPresentation, name: string): Promise<void> => {
+    await api(`/api/presentations/${presentation.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name })
+    })
     await refresh()
   }
 
@@ -213,29 +207,14 @@ function Dashboard({ email, onLogout }: { email: string; onLogout: () => void })
         ) : (
           <div className="publication-grid">
             {presentations.map((presentation) => (
-              <article className="publication-card" key={presentation.id}>
-                <div className="publication-preview">
-                  <span>{presentation.slideCount}</span>
-                  <Icon name="layers" size={28} />
-                </div>
-                <div className="publication-copy">
-                  <h2>{presentation.name}</h2>
-                  <p>Revision {presentation.revisionNumber ?? '—'} · {presentation.slideCount} {presentation.slideCount === 1 ? 'screen' : 'screens'}</p>
-                  <time dateTime={presentation.updatedAt}>{new Date(presentation.updatedAt).toLocaleString()}</time>
-                </div>
-                <div className="publication-actions">
-                  {presentation.shareUrl ? (
-                    <>
-                      <button className="web-primary" onClick={() => void copy(presentation)} type="button">
-                        {copiedId === presentation.id ? 'Copied' : 'Copy link'}
-                      </button>
-                      <a href={`${presentation.shareUrl}?from=dashboard`}>Open</a>
-                      <button onClick={() => void revoke(presentation)} type="button">Disable link</button>
-                    </>
-                  ) : <span className="publication-revoked">Link disabled — publish again to create a new one.</span>}
-                  <button className="danger" onClick={() => void remove(presentation)} type="button">Delete</button>
-                </div>
-              </article>
+              <PublicationCard
+                copied={copiedId === presentation.id}
+                key={presentation.id}
+                onCopy={(item) => void copy(item)}
+                onDelete={(item) => void remove(item)}
+                onRename={rename}
+                presentation={presentation}
+              />
             ))}
           </div>
         )}

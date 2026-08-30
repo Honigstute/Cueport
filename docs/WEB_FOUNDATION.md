@@ -39,6 +39,10 @@ Keep the first hosted version intentionally small:
   never modify the immutable revision;
 - a desktop-matched viewer top bar that can be fully hidden or restored with H;
 - publication upload, replace, unpublish, and revoke;
+- the exact desktop home-card preview as a reserved JPEG publication asset,
+  with client-mark/first-screen fallbacks for older revisions;
+- desktop-style owner cards with thumbnail opening, link copying, rename, and
+  deletion while publication content remains immutable;
 - the existing presentation surface without editing controls;
 - access and error logs, database backups, and asset-retention cleanup.
 

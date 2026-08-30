@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PRESENTATION_SETTINGS, type PresentationDocument } from '../../../src/shared/presentation'
-import { collectExpectedAssets } from './presentationAssets'
+import { PUBLICATION_PREVIEW_ASSET_KEY } from '../../../src/shared/projects'
+import { collectExpectedAssets, normalizePresentationName, preferredDashboardThumbnailKeys } from './presentationAssets'
 
 const document: PresentationDocument = {
   schemaVersion: 1,
@@ -29,5 +30,25 @@ describe('publication assets', () => {
 
   it('rejects duplicate keys before any upload starts', () => {
     expect(() => collectExpectedAssets({ ...document, references: [document.slides[0]] })).toThrow(/reuses an asset key/i)
+  })
+
+  it('accepts one reserved JPEG desktop preview when publishing it', () => {
+    expect(collectExpectedAssets(document, true)).toEqual([
+      { key: 'slides/home.png', mimeType: 'image/png' },
+      { key: PUBLICATION_PREVIEW_ASSET_KEY, mimeType: 'image/jpeg' }
+    ])
+  })
+
+  it('prefers the exact desktop preview before falling back to the first screen', () => {
+    expect(preferredDashboardThumbnailKeys(document)).toEqual([
+      PUBLICATION_PREVIEW_ASSET_KEY,
+      'slides/home.png'
+    ])
+  })
+
+  it('normalizes safe web presentation names and rejects invalid ones', () => {
+    expect(normalizePresentationName('  Client   review  ')).toBe('Client review')
+    expect(() => normalizePresentationName('')).toThrow(/shorter than 120/i)
+    expect(() => normalizePresentationName('Invalid\u0000name')).toThrow(/shorter than 120/i)
   })
 })

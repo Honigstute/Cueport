@@ -4,7 +4,13 @@ import { access, copyFile, mkdir, readFile, readdir, rename, rm, stat, unlink, w
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
-import type { OpenPresentationResult, PublicationSource, SavePresentationRequest, SavedPresentationSummary } from '../shared/projects'
+import {
+  PUBLICATION_PREVIEW_ASSET_KEY,
+  type OpenPresentationResult,
+  type PublicationSource,
+  type SavePresentationRequest,
+  type SavedPresentationSummary
+} from '../shared/projects'
 import {
   PRESENTATION_DOCUMENT_VERSION,
   mimeTypeFromFileName,
@@ -537,14 +543,19 @@ async function loadPublicationSource(candidateId: unknown): Promise<PublicationS
       { key: reference.assetKey, mimeType: reference.mimeType },
       ...(reference.posterKey ? [{ key: reference.posterKey, mimeType: 'image/jpeg' as const }] : [])
     ]),
-    ...(document.brand ? [{ key: document.brand.assetKey, mimeType: document.brand.mimeType }] : [])
+    ...(document.brand ? [{ key: document.brand.assetKey, mimeType: document.brand.mimeType }] : []),
+    ...(await pathExists(join(directory, 'preview.jpg'))
+      ? [{ key: PUBLICATION_PREVIEW_ASSET_KEY, mimeType: 'image/jpeg' as const }]
+      : [])
   ]
   const keys = new Set<string>()
   const assets: PublicationSource['assets'] = []
   for (const candidate of candidates) {
     if (keys.has(candidate.key)) throw new Error('The saved presentation reuses an asset reference.')
     keys.add(candidate.key)
-    const filePath = resolveProjectAsset(directory, candidate.key)
+    const filePath = candidate.key === PUBLICATION_PREVIEW_ASSET_KEY
+      ? join(directory, 'preview.jpg')
+      : resolveProjectAsset(directory, candidate.key)
     const fileStats = await stat(filePath)
     if (!fileStats.isFile() || fileStats.size < 1) throw new Error(`The saved asset ${candidate.key} is unavailable.`)
     assets.push({ ...candidate, filePath, bytes: fileStats.size })
