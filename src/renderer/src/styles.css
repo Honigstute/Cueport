@@ -1017,8 +1017,7 @@ html[data-platform="darwin"] .top-bar-content {
   padding: 0 8px;
   transition:
     background-color var(--duration-fast) ease,
-    color var(--duration-fast) ease,
-    scale var(--duration-fast) ease;
+    color var(--duration-fast) ease;
 }
 
 .filmstrip-tabs button:hover {
@@ -1445,10 +1444,6 @@ html[data-platform="darwin"] .top-bar-content {
 .reference-picker-grid button:focus-visible {
   background: var(--control-hover);
   color: var(--ink-100);
-}
-
-.reference-picker-grid button:active {
-  scale: 0.96;
 }
 
 .reference-picker-grid button > span {

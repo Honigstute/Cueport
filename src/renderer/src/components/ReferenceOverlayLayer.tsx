@@ -393,7 +393,6 @@ function ReferencePickerMenu({ references, onChoose, onClose, x, y }: ReferenceP
     window.addEventListener('keydown', closeOnEscape)
     window.addEventListener('resize', onClose)
     window.addEventListener('scroll', onClose, true)
-    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
     return () => {
       window.removeEventListener('pointerdown', closeOutside, true)
       window.removeEventListener('keydown', closeOnEscape)
@@ -419,7 +418,17 @@ function ReferencePickerMenu({ references, onChoose, onClose, x, y }: ReferenceP
           {references.map((reference) => (
             <button key={reference.id} onClick={() => onChoose(reference)} role="menuitem" type="button">
               <span>
-                <img alt="" draggable={false} src={reference.thumbnailUrl} />
+                <img
+                  alt=""
+                  draggable={false}
+                  loading="lazy"
+                  onError={(event) => {
+                    if (reference.mimeType.startsWith('image/') && event.currentTarget.src !== reference.url) {
+                      event.currentTarget.src = reference.url
+                    }
+                  }}
+                  src={reference.thumbnailUrl || (reference.mimeType.startsWith('image/') ? reference.url : '')}
+                />
                 {reference.mimeType === 'video/mp4' && (
                   <span aria-hidden="true" className="thumbnail-video-badge"><Icon name="play" size={15} /></span>
                 )}

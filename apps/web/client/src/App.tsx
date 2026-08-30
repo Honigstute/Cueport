@@ -261,17 +261,23 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
 
   const assets = useMemo(() => {
     if (!shared) return { slides: [] as SlideAsset[], references: [] as ReferenceAsset[], brand: null as BrandSettings | null }
-    const media = (item: PresentationDocument['slides'][number]): SlideAsset => ({
-      id: item.id,
-      name: item.name,
-      width: item.width,
-      height: item.height,
-      mimeType: item.mimeType,
-      origin: 'local',
-      sourceKey: null,
-      url: shared.assets[item.assetKey] || '',
-      thumbnailUrl: item.posterKey ? shared.assets[item.posterKey] || '' : ''
-    })
+    const media = (item: PresentationDocument['slides'][number]): SlideAsset => {
+      const url = shared.assets[item.assetKey] || ''
+      return {
+        id: item.id,
+        name: item.name,
+        width: item.width,
+        height: item.height,
+        mimeType: item.mimeType,
+        origin: 'local',
+        sourceKey: null,
+        url,
+        // Images are already suitable previews. Videos use their uploaded poster.
+        thumbnailUrl: item.posterKey
+          ? shared.assets[item.posterKey] || ''
+          : item.mimeType.startsWith('image/') ? url : ''
+      }
+    }
     return {
       slides: shared.document.slides.map(media),
       references: shared.document.references.map(media),
