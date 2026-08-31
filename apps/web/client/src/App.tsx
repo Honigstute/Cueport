@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PresentationDocument } from '../../../../src/shared/presentation'
 import { Stage } from '../../../../src/renderer/src/components/Stage'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
+import { useManagedTimeout } from '../../../../src/renderer/src/hooks/useManagedTimeout'
 import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
 import { nextZoomStop } from '../../../../src/renderer/src/lib/zoom'
 import type { BrandSettings, DisplayMode, ReferenceAsset, SlideAsset } from '../../../../src/renderer/src/types'
@@ -157,6 +158,8 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
     presentation: PublishedPresentation
     type: 'delete' | 'take-offline'
   } | null>(null)
+  const copyReset = useManagedTimeout()
+  const copyRequestRef = useRef(0)
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -193,16 +196,21 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
 
   const copy = async (presentation: PublishedPresentation): Promise<void> => {
     if (!presentation.shareUrl) return
+    const requestId = ++copyRequestRef.current
+    copyReset.cancel()
+    setCopiedId(null)
     setCopyMessage(null)
     try {
       await copyTextToClipboard(presentation.shareUrl)
+      if (requestId !== copyRequestRef.current) return
       setCopiedId(presentation.id)
       setCopyMessage('Private link copied.')
-      window.setTimeout(() => {
+      copyReset.schedule(() => {
         setCopiedId((current) => current === presentation.id ? null : current)
         setCopyMessage(null)
       }, 2200)
     } catch (cause) {
+      if (requestId !== copyRequestRef.current) return
       setCopiedId(null)
       setCopyMessage(cause instanceof Error ? cause.message : 'The private link could not be copied.')
     }

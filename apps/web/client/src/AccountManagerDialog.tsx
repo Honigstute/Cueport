@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
+import { useManagedTimeout } from '../../../../src/renderer/src/hooks/useManagedTimeout'
 import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
 import { api } from './api'
 import type { AccountSummary } from './accountTypes'
@@ -89,11 +90,19 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
   const [editing, setEditing] = useState<AccountSummary | 'new' | null>(null)
   const [passwordUrl, setPasswordUrl] = useState<string | null>(null)
+  const [passwordLinkAccountId, setPasswordLinkAccountId] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingDeletion, setPendingDeletion] = useState<AccountSummary | null>(null)
   const addButtonRef = useRef<HTMLButtonElement>(null)
   const editorReturnFocusRef = useRef<HTMLButtonElement | null>(null)
+  const passwordLinkRequestRef = useRef<string | null>(null)
+  const copyReset = useManagedTimeout()
+
+  const clearCopyFeedback = (): void => {
+    copyReset.cancel()
+    setCopied(false)
+  }
 
   const closeEditor = useCallback((): void => {
     setEditing(null)
@@ -134,14 +143,20 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
   }
 
   const createPasswordLink = async (account: AccountSummary): Promise<void> => {
+    if (passwordLinkRequestRef.current) return
+    passwordLinkRequestRef.current = account.id
+    setPasswordLinkAccountId(account.id)
     setPasswordUrl(null)
-    setCopied(false)
+    clearCopyFeedback()
     setError(null)
     try {
       const result = await api<{ passwordUrl: string }>(`/api/accounts/${account.id}/password-link`, { method: 'POST', body: '{}' })
       setPasswordUrl(result.passwordUrl)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'A password link could not be created.')
+    } finally {
+      passwordLinkRequestRef.current = null
+      setPasswordLinkAccountId(null)
     }
   }
 
@@ -151,7 +166,7 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
       await copyTextToClipboard(passwordUrl)
       setError(null)
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1800)
+      copyReset.schedule(() => setCopied(false), 1800)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The password link could not be copied.')
     }
@@ -162,7 +177,7 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
       <section aria-labelledby="accounts-title" aria-modal="true" className="account-dialog accounts-dialog" onKeyDown={trapDialogFocus} role="dialog">
         <header className="account-dialog-header">
           <div><span className="eyebrow">Administration</span><h2 id="accounts-title">Accounts</h2></div>
-          <div className="account-dialog-header-actions"><button autoFocus className="web-primary" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setPasswordUrl(null); setCopied(false); setEditing('new') }} ref={addButtonRef} type="button"><Icon name="add" size={15} />Add account</button><button aria-label="Close accounts" className="icon-button" onClick={onClose} type="button"><Icon name="close" size={16} /></button></div>
+          <div className="account-dialog-header-actions"><button autoFocus className="web-primary" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setPasswordUrl(null); clearCopyFeedback(); setEditing('new') }} ref={addButtonRef} type="button"><Icon name="add" size={15} />Add account</button><button aria-label="Close accounts" className="icon-button" onClick={onClose} type="button"><Icon name="close" size={16} /></button></div>
         </header>
         {error && <p className="web-error" role="alert">{error}</p>}
         {passwordUrl && (
@@ -176,7 +191,7 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
           <AccountEditor
             account={editing === 'new' ? null : editing}
             onCancel={closeEditor}
-            onSaved={(url) => { closeEditor(); if (url) { setPasswordUrl(url); setCopied(false) } void refresh() }}
+            onSaved={(url) => { closeEditor(); if (url) { setPasswordUrl(url); clearCopyFeedback() } void refresh() }}
           />
         ) : (
           <div className="account-list">
@@ -187,9 +202,9 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
                 <div className="account-row-actions">
                   <button aria-label={`Edit ${account.displayName}`} className="icon-button" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setPasswordUrl(null); setEditing(account) }} title="Edit account" type="button"><Icon name="edit" size={15} /></button>
                   {!account.protected && (
-                    <button className="account-password-link" onClick={() => void createPasswordLink(account)} title={account.active ? 'Create password reset link' : 'Create password setup link'} type="button">
+                    <button aria-busy={passwordLinkAccountId === account.id} className="account-password-link" disabled={passwordLinkAccountId !== null} onClick={() => void createPasswordLink(account)} title={account.active ? 'Create password reset link' : 'Create password setup link'} type="button">
                       <Icon name="lock" size={15} />
-                      <span>{account.active ? 'Reset password' : 'Setup password'}</span>
+                      <span>{passwordLinkAccountId === account.id ? 'Creating…' : account.active ? 'Reset password' : 'Setup password'}</span>
                     </button>
                   )}
                   {!account.protected && <button aria-label={`Delete ${account.displayName}`} className="icon-button account-delete" onClick={() => setPendingDeletion(account)} title="Delete account" type="button"><Icon name="remove" size={15} /></button>}

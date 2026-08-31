@@ -885,8 +885,8 @@
 
 .comment-pin {
   align-items: center;
-  background: var(--ui-input);
-  border: 1px solid var(--ui-outline);
+  background: var(--ui-active);
+  border: 1px solid var(--ui-active);
   border-radius: 50%;
   color: var(--ui-text);
   display: flex;
@@ -913,9 +913,10 @@
   width: 40px;
 }
 
-.comment-pin:hover { background: var(--ui-hover); }
+.comment-pin:hover,
 .comment-pin[data-active="true"],
-.comment-pin-draft { background: var(--ui-active); border-color: var(--ui-active); }
+.comment-pin-draft { background: var(--ui-active-hover); border-color: var(--ui-active-hover); }
+.comment-pin:focus-visible { outline: 2px solid var(--ui-text); outline-offset: 2px; }
 .comment-pin[data-movable="true"] { cursor: grab; touch-action: none; }
 .comment-pin[data-dragging="true"] { cursor: grabbing; }
 

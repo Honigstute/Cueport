@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { PublishingResult, PublishingStatus } from '../../../shared/projects'
+import { useManagedTimeout } from '../hooks/useManagedTimeout'
 import { copyTextToClipboard } from '../lib/clipboard'
 
 interface PublishDialogProps {
@@ -26,6 +27,7 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<PublishingResult | null>(null)
   const [copied, setCopied] = useState(false)
+  const copyReset = useManagedTimeout()
 
   useEffect(() => {
     window.cueport?.getPublishingStatus()
@@ -82,7 +84,7 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
     try {
       await copyTextToClipboard(result.shareUrl)
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 2200)
+      copyReset.schedule(() => setCopied(false), 2200)
     } catch (cause) {
       setError(cleanError(cause, 'The private link could not be copied.'))
     }
