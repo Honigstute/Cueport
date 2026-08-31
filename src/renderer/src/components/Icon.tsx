@@ -9,6 +9,7 @@ export type IconName =
   | 'close'
   | 'comment'
   | 'camera'
+  | 'download'
   | 'edit'
   | 'eye'
   | 'eye-off'
@@ -46,6 +47,7 @@ export function Icon({ name, size = 18, ...props }: IconProps): React.JSX.Elemen
     'chevron-down': <><path d="m7 10 5 5 5-5" /></>,
     close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     comment: <><path d="M4 5h16v11H9l-5 4V5Z" /><path d="M8 9h8M8 12h5" /></>,
+    download: <><path d="M12 4v11m0 0 4-4m-4 4-4-4" /><path d="M5 19h14" /></>,
     edit: <><path d="m4 20 4.2-1 10.6-10.6a2 2 0 0 0-2.8-2.8L5.4 16.2 4 20Z" /><path d="m14.8 6.8 2.4 2.4" /></>,
     eye: <><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.75" /></>,
     'eye-off': <><path d="m3 3 18 18" /><path d="M10.6 6.1A10.4 10.4 0 0 1 12 6c6.1 0 9.5 6 9.5 6a17.4 17.4 0 0 1-2.1 2.8M6.2 6.2C3.8 8 2.5 12 2.5 12s3.4 6 9.5 6c1 0 2-.2 2.8-.5" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>,

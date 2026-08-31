@@ -34,6 +34,7 @@ import {
 import { ApiError, jsonBody } from './http'
 import { publicProfile, registerAccountRoutes } from './accounts'
 import { registerDiscussionRoutes } from './discussions'
+import { registerDownloadRoutes } from './downloads'
 
 const MAX_ASSET_BYTES = 500 * 1024 * 1024
 const MAX_PUBLICATION_BYTES = 2 * 1024 * 1024 * 1024
@@ -344,6 +345,7 @@ async function start(): Promise<void> {
     createSession
   })
   registerDiscussionRoutes({ app, pool, requireUser })
+  registerDownloadRoutes({ app, pool, storageRoot: config.storageRoot, requireUser })
 
   app.post('/api/publications/drafts', async (request) => {
     const owner = await requireOwner(request)

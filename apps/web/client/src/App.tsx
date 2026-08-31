@@ -428,6 +428,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
     <div className={`public-viewer-shell app-shell${isInterfaceVisible ? '' : ' web-viewer-interface-hidden'}`}>
       <ViewerControls
         commentsEnabled={commentsEnabled}
+        downloadUrl={`/api/share/${encodeURIComponent(token)}/download`}
         isVisible={isInterfaceVisible}
         mode={view.mode}
         onCommentsToggle={() => setCommentsEnabled((enabled) => !enabled)}

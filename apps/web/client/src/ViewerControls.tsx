@@ -5,6 +5,7 @@ import type { DisplayMode } from '../../../../src/renderer/src/types'
 
 interface ViewerControlsProps {
   commentsEnabled: boolean
+  downloadUrl: string
   isVisible: boolean
   mode: DisplayMode
   viewportEnabled: boolean
@@ -20,6 +21,7 @@ interface ViewerControlsProps {
 
 export function ViewerControls({
   commentsEnabled,
+  downloadUrl,
   isVisible,
   mode,
   viewportEnabled,
@@ -76,6 +78,10 @@ export function ViewerControls({
           >
             <Icon name="comment" size={17} />
           </button>
+          <a className="icon-button web-viewer-download" download href={downloadUrl} title="Download sequence">
+            <Icon name="download" size={17} />
+            <span className="sr-only">Download sequence</span>
+          </a>
         </div>
 
         <div aria-label="View controls" className="view-controls">

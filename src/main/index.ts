@@ -1,6 +1,6 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, session, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, session, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { createReadStream } from 'node:fs'
-import { access, copyFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, open, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
@@ -20,6 +20,7 @@ import {
   type PresentationDocument
 } from '../shared/presentation'
 import { resolveByteRange } from './httpRange'
+import { shouldOptimizeLargePng } from './pngOptimization'
 import { configurePublishingHandlers } from './publishing'
 
 const DEVELOPMENT_RENDERER_URL = process.env.ELECTRON_RENDERER_URL
@@ -27,6 +28,8 @@ const DEVELOPMENT_ICON = join(app.getAppPath(), 'build/icon.png')
 const SUPPORTED_PRESENTATION_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.mp4'])
 const SUPPORTED_ASSET_EXTENSIONS = new Set([...SUPPORTED_PRESENTATION_EXTENSIONS, '.svg'])
 const ASSET_SCHEME = 'cueport-asset'
+const PNG_METADATA_PREFIX_BYTES = 2 * 1024 * 1024
+const JPEG_IMPORT_QUALITY = 85
 const importedAssetPaths = new Map<string, string>()
 const importedPathKeys = new Map<string, string>()
 let mainWindow: BrowserWindow | null = null
@@ -261,6 +264,66 @@ async function copyRegisteredAsset(sourceKey: string, destination: string): Prom
   if (resolve(source) !== resolve(destination)) await copyFile(source, destination)
 }
 
+interface StoredPresentationMedia {
+  assetKey: string
+  mimeType: PresentationDocument['slides'][number]['mimeType']
+  optimized: boolean
+}
+
+async function readFilePrefix(filePath: string, fileBytes: number): Promise<Buffer> {
+  const length = Math.min(fileBytes, PNG_METADATA_PREFIX_BYTES)
+  const buffer = Buffer.alloc(length)
+  const handle = await open(filePath, 'r')
+  try {
+    const { bytesRead } = await handle.read(buffer, 0, length, 0)
+    return buffer.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * Saves the presentation-owned copy of imported media. Large opaque PNGs are
+ * encoded once at JPEG quality 85; transparent or already-efficient PNGs keep
+ * their original bytes. The source file selected by the user is never changed.
+ */
+async function storePresentationMedia(
+  sourceKey: string,
+  projectDir: string,
+  assetStem: string
+): Promise<StoredPresentationMedia> {
+  const sourcePath = importedAssetPaths.get(sourceKey)
+  if (!sourcePath) throw new Error('One of the original presentation files is no longer available.')
+  const sourceStats = await stat(sourcePath)
+  const sourceExtension = extname(sourcePath).toLowerCase()
+
+  if (sourceExtension === '.png') {
+    const prefix = await readFilePrefix(sourcePath, sourceStats.size)
+    if (shouldOptimizeLargePng(sourcePath, sourceStats.size, prefix)) {
+      const image = nativeImage.createFromPath(sourcePath)
+      const jpeg = image.isEmpty() ? null : image.toJPEG(JPEG_IMPORT_QUALITY)
+      if (jpeg && jpeg.length > 0 && jpeg.length < sourceStats.size) {
+        const assetKey = `${assetStem}.jpg`
+        const destination = resolveProjectAsset(projectDir, assetKey)
+        await mkdir(dirname(destination), { recursive: true })
+        await writeFile(destination, jpeg)
+        return { assetKey, mimeType: 'image/jpeg', optimized: true }
+      }
+    }
+  }
+
+  const assetKey = `${assetStem}${sourceExtension}`
+  await copyRegisteredAsset(sourceKey, resolveProjectAsset(projectDir, assetKey))
+  return { assetKey, mimeType: mimeTypeFromFileName(sourcePath), optimized: false }
+}
+
+function replaceFileExtension(fileName: string, extension: string): string {
+  const currentExtension = extname(fileName)
+  return currentExtension
+    ? `${fileName.slice(0, -currentExtension.length)}${extension}`
+    : `${fileName}${extension}`
+}
+
 function validateSaveRequest(candidate: unknown): SavePresentationRequest {
   if (!candidate || typeof candidate !== 'object') throw new Error('The presentation could not be saved.')
   const request = candidate as Partial<SavePresentationRequest>
@@ -380,9 +443,7 @@ function configurePresentationHandlers(): void {
     const references: PresentationDocument['references'] = []
 
     for (const slide of request.slides) {
-      const sourcePath = importedAssetPaths.get(slide.sourceKey!)!
-      const assetKey = `assets/${slide.id}${extname(sourcePath).toLowerCase()}`
-      await copyRegisteredAsset(slide.sourceKey!, resolveProjectAsset(directory, assetKey))
+      const stored = await storePresentationMedia(slide.sourceKey!, directory, `assets/${slide.id}`)
       const poster = slide.thumbnailDataUrl ? decodeJpegDataUrl(slide.thumbnailDataUrl) : null
       const posterKey = poster ? `thumbnails/${slide.id}.jpg` : undefined
       if (poster && posterKey) {
@@ -392,19 +453,17 @@ function configurePresentationHandlers(): void {
       }
       slides.push({
         id: slide.id,
-        name: slide.name,
+        name: stored.optimized ? replaceFileExtension(slide.name, '.jpg') : slide.name,
         width: slide.width,
         height: slide.height,
-        assetKey,
-        mimeType: mimeTypeFromFileName(sourcePath),
+        assetKey: stored.assetKey,
+        mimeType: stored.mimeType,
         ...(posterKey && { posterKey })
       })
     }
 
     for (const reference of request.references) {
-      const sourcePath = importedAssetPaths.get(reference.sourceKey!)!
-      const assetKey = `references/${reference.id}${extname(sourcePath).toLowerCase()}`
-      await copyRegisteredAsset(reference.sourceKey!, resolveProjectAsset(directory, assetKey))
+      const stored = await storePresentationMedia(reference.sourceKey!, directory, `references/${reference.id}`)
       const poster = reference.thumbnailDataUrl ? decodeJpegDataUrl(reference.thumbnailDataUrl) : null
       const posterKey = poster ? `thumbnails/${reference.id}.jpg` : undefined
       if (poster && posterKey) {
@@ -414,11 +473,11 @@ function configurePresentationHandlers(): void {
       }
       references.push({
         id: reference.id,
-        name: reference.name,
+        name: stored.optimized ? replaceFileExtension(reference.name, '.jpg') : reference.name,
         width: reference.width,
         height: reference.height,
-        assetKey,
-        mimeType: mimeTypeFromFileName(sourcePath),
+        assetKey: stored.assetKey,
+        mimeType: stored.mimeType,
         ...(posterKey && { posterKey })
       })
     }
