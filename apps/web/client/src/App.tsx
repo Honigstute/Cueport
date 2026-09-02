@@ -758,6 +758,7 @@ function SharedViewer({ initialNavigationDirections, token, onAuthenticationRequ
           programBarColor={state.programBarColor}
           referenceImageShadow={state.referenceImageShadow}
           references={state.references}
+          seamlessImageSwitch
           slide={slide}
           viewport={state.viewport}
           viewportEnabled={state.viewportEnabled}

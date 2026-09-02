@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import { useClickDragScroll, type SlideNavigationDirection } from '../hooks/useClickDragScroll'
 import { getReadableInk } from '../lib/colors'
+import { sharedImagePreloadCache } from '../lib/imagePreloadCache'
 import { shouldUseEdgeToEdgeCanvas } from '../lib/layout'
 import { calculatePhoneFrameGeometry } from '../lib/phoneFrame'
 import { nextZoomStop, zoomDirectionFromWheel } from '../lib/zoom'
@@ -35,6 +36,8 @@ interface StageProps {
   onNavigate: (direction: SlideNavigationDirection) => void
   onZoomChange: (zoom: number) => void
   onFitWidthChange: (slideId: string, width: number) => void
+  /** Retain the previous still until the requested image is decoded. */
+  seamlessImageSwitch?: boolean
   /** Optional web collaboration UI rendered in source-artwork coordinates. */
   artworkOverlay?: React.ReactNode
   /** Optional web action; its presence adds Create comment to the artwork menu. */
@@ -99,11 +102,73 @@ function ArtworkContextMenu({ onClose, onCreateComment, onPlaceReference, x, y }
   )
 }
 
-function ArtworkMedia({ slide, style }: { slide: SlideAsset; style?: React.CSSProperties }): React.JSX.Element {
+interface PreparedArtwork {
+  isPrepared: boolean
+  slide: SlideAsset | null
+}
+
+function artworkMediaKey(slide: SlideAsset | null): string | null {
+  return slide ? `${slide.id}:${slide.url}` : null
+}
+
+/**
+ * Keep the last painted still mounted while the requested still decodes. The
+ * active presentation state can advance immediately without exposing a blank
+ * browser frame between two large screenshots.
+ */
+function usePreparedArtwork(requestedSlide: SlideAsset | null, enabled: boolean): PreparedArtwork {
+  const [preparedArtwork, setPreparedArtwork] = useState<PreparedArtwork>({
+    isPrepared: false,
+    slide: requestedSlide
+  })
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!enabled) return () => { cancelled = true }
+
+    if (!requestedSlide) {
+      setPreparedArtwork((current) => current.slide === null
+        ? current
+        : { isPrepared: false, slide: null })
+      return () => { cancelled = true }
+    }
+
+    if (requestedSlide.mimeType === 'video/mp4') {
+      setPreparedArtwork((current) => artworkMediaKey(current.slide) === artworkMediaKey(requestedSlide)
+        ? current
+        : { isPrepared: false, slide: requestedSlide })
+      return () => { cancelled = true }
+    }
+
+    // With no previous artwork, preserve the existing loading treatment. For
+    // later slides, leave the previous decoded bitmap visible until this one is ready.
+    setPreparedArtwork((current) => current.slide === null
+      ? { isPrepared: false, slide: requestedSlide }
+      : current)
+
+    void sharedImagePreloadCache.preload(requestedSlide.url).then(() => {
+      if (cancelled) return
+      setPreparedArtwork({ isPrepared: true, slide: requestedSlide })
+    })
+
+    return () => { cancelled = true }
+  }, [enabled, requestedSlide])
+
+  return enabled
+    ? preparedArtwork
+    : { isPrepared: false, slide: requestedSlide }
+}
+
+function ArtworkMedia({ isPrepared, slide, style }: {
+  isPrepared: boolean
+  slide: SlideAsset
+  style?: React.CSSProperties
+}): React.JSX.Element {
   const mediaKey = `${slide.id}:${slide.url}`
   const [readyKey, setReadyKey] = useState<string | null>(null)
   const [failedKey, setFailedKey] = useState<string | null>(null)
-  const isReady = readyKey === mediaKey
+  const isReady = isPrepared || readyKey === mediaKey
   const hasFailed = failedKey === mediaKey
   const loadingState = hasFailed ? 'error' : 'loading'
 
@@ -259,7 +324,7 @@ function useElementContentSize<T extends HTMLElement>(measureKey: string): [
 }
 
 export function Stage({
-  slide,
+  slide: requestedSlide,
   references,
   mode,
   background,
@@ -283,9 +348,13 @@ export function Stage({
   onNavigate,
   onZoomChange,
   onFitWidthChange,
+  seamlessImageSwitch = false,
   artworkOverlay,
   onCreateCommentAt
 }: StageProps): React.JSX.Element {
+  const preparedArtwork = usePreparedArtwork(requestedSlide, seamlessImageSwitch)
+  const slide = preparedArtwork.slide
+  const requestedSlideIsVisible = artworkMediaKey(slide) === artworkMediaKey(requestedSlide)
   const referenceLayerRef = useRef<ReferenceOverlayLayerHandle>(null)
   const [artworkMenu, setArtworkMenu] = useState<ArtworkMenuPoint | null>(null)
   const isViewportActive = mode === 'canvas' && viewportEnabled
@@ -483,8 +552,13 @@ export function Stage({
 
   const artwork = slide ? (
     <div className="artwork-content">
-      <ArtworkMedia key={`${slide.id}:${slide.url}`} slide={slide} style={artworkStyle} />
-      {artworkOverlay}
+      <ArtworkMedia
+        isPrepared={preparedArtwork.isPrepared}
+        key={`${slide.id}:${slide.url}`}
+        slide={slide}
+        style={artworkStyle}
+      />
+      {requestedSlideIsVisible && artworkOverlay}
     </div>
   ) : null
 
@@ -520,7 +594,7 @@ export function Stage({
       data-start-at-top={mode === 'canvas' && canvasStartAtTop}
       data-viewport={isViewportActive}
       onContextMenu={(event) => {
-        if (!slide || (event.target instanceof Element && event.target.closest('.reference-overlay'))) return
+        if (!slide || !requestedSlideIsVisible || (event.target instanceof Element && event.target.closest('.reference-overlay'))) return
         event.preventDefault()
         const artworkTarget = event.target instanceof Element && Boolean(event.target.closest('.artwork-content'))
         setArtworkMenu({

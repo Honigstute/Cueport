@@ -2074,9 +2074,9 @@ html[data-slide-direction="previous"]::view-transition-new(cueport-slide) {
   z-index: 1;
 }
 
-/* Replacing an img src can leave the previously decoded bitmap painted for
-   seconds. Each slide now owns a fresh media node; this neutral state covers
-   its reserved dimensions until the new bytes are decoded and ready to paint. */
+/* Each slide owns a fresh media node. Stage keeps the previous decoded still
+   mounted during navigation; this neutral state is only needed for the first
+   image or a video that has not produced a frame yet. */
 .artwork-media[data-ready="false"] {
   opacity: 0;
 }
