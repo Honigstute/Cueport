@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
 import { formatZoom } from '../../../../src/renderer/src/lib/zoom'
 import type { DisplayMode, SlideAsset } from '../../../../src/renderer/src/types'
+import { sharedViewerThumbnailCache } from './viewerThumbnailCache'
 
 interface ViewerControlsProps {
   activeSlideIndex: number
@@ -35,14 +36,17 @@ interface ViewerThumbnailPolicy {
   loading: 'eager' | 'lazy'
 }
 
-/**
- * Prefer a real poster. Legacy stills may reuse only the active/adjacent full
- * image because the renderer is already warming exactly those URLs.
- */
-export function viewerThumbnailUrl(slide: SlideAsset, index: number, activeIndex: number): string | null {
-  if (slide.thumbnailUrl && slide.thumbnailUrl !== slide.url) return slide.thumbnailUrl
-  if (slide.mimeType !== 'video/mp4' && Math.abs(index - activeIndex) <= 1) return slide.url || null
-  return null
+/** A persisted poster is always preferred over a generated legacy preview. */
+export function viewerThumbnailUrl(slide: SlideAsset): string | null {
+  return slide.thumbnailUrl && slide.thumbnailUrl !== slide.url ? slide.thumbnailUrl : null
+}
+
+/** Generate missing previews only for media the renderer is already warming. */
+export function shouldGenerateLegacyViewerThumbnail(slide: SlideAsset, index: number, activeIndex: number): boolean {
+  return !viewerThumbnailUrl(slide) &&
+    slide.mimeType !== 'video/mp4' &&
+    Boolean(slide.url) &&
+    Math.abs(index - activeIndex) <= 1
 }
 
 /** Warm the active screen and its neighbors; keep every distant preview lazy. */
@@ -52,6 +56,72 @@ export function viewerThumbnailPolicy(index: number, activeIndex: number): Viewe
     loading: distance <= 1 ? 'eager' : 'lazy',
     fetchPriority: distance === 0 ? 'high' : 'low'
   }
+}
+
+function ViewerSlideThumbnail({
+  activeIndex,
+  index,
+  onSelect,
+  slide
+}: {
+  activeIndex: number
+  index: number
+  onSelect: (index: number) => void
+  slide: SlideAsset
+}): React.JSX.Element {
+  const posterUrl = viewerThumbnailUrl(slide)
+  const shouldGenerate = shouldGenerateLegacyViewerThumbnail(slide, index, activeIndex)
+  const [generated, setGenerated] = useState<{ sourceUrl: string; thumbnailUrl: string } | null>(null)
+  const mountedRef = useRef(false)
+  const currentSourceRef = useRef(slide.url)
+  const policy = viewerThumbnailPolicy(index, activeIndex)
+  currentSourceRef.current = slide.url
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+
+  useEffect(() => {
+    if (posterUrl || !shouldGenerate || generated?.sourceUrl === slide.url) return
+    const sourceUrl = slide.url
+    void sharedViewerThumbnailCache.get(sourceUrl).then((thumbnailUrl) => {
+      if (!thumbnailUrl || !mountedRef.current || currentSourceRef.current !== sourceUrl) return
+      setGenerated({ sourceUrl, thumbnailUrl })
+    })
+  }, [generated?.sourceUrl, posterUrl, shouldGenerate, slide.url])
+
+  const generatedUrl = generated?.sourceUrl === slide.url ? generated.thumbnailUrl : null
+  const thumbnailUrl = posterUrl || generatedUrl
+
+  return (
+    <button
+      aria-current={index === activeIndex ? 'page' : undefined}
+      aria-label={`Show screen ${index + 1}: ${slide.name}`}
+      className="web-viewer-slide-thumbnail"
+      data-active={index === activeIndex}
+      onClick={() => onSelect(index)}
+      title={`${index + 1}. ${slide.name}`}
+      type="button"
+    >
+      {thumbnailUrl ? (
+        <img
+          alt=""
+          decoding="async"
+          draggable={false}
+          fetchPriority={policy.fetchPriority}
+          height={22}
+          loading={policy.loading}
+          src={thumbnailUrl}
+          width={30}
+        />
+      ) : (
+        <span aria-hidden="true" className="web-viewer-slide-thumbnail-fallback">
+          <Icon name={slide.mimeType === 'video/mp4' ? 'play' : 'image'} size={13} />
+        </span>
+      )}
+    </button>
+  )
 }
 
 export function ViewerControls({
@@ -277,39 +347,15 @@ export function ViewerControls({
             }}
             ref={slideStripRef}
           >
-            {slides.map((slide, index) => {
-              const thumbnailUrl = viewerThumbnailUrl(slide, index, activeSlideIndex)
-              const policy = viewerThumbnailPolicy(index, activeSlideIndex)
-              return (
-                <button
-                  aria-current={index === activeSlideIndex ? 'page' : undefined}
-                  aria-label={`Show screen ${index + 1}: ${slide.name}`}
-                  className="web-viewer-slide-thumbnail"
-                  data-active={index === activeSlideIndex}
-                  key={slide.id}
-                  onClick={() => onSlideSelect(index)}
-                  title={`${index + 1}. ${slide.name}`}
-                  type="button"
-                >
-                  {thumbnailUrl ? (
-                    <img
-                      alt=""
-                      decoding="async"
-                      draggable={false}
-                      fetchPriority={policy.fetchPriority}
-                      height={22}
-                      loading={policy.loading}
-                      src={thumbnailUrl}
-                      width={30}
-                    />
-                  ) : (
-                    <span aria-hidden="true" className="web-viewer-slide-thumbnail-fallback">
-                      <Icon name={slide.mimeType === 'video/mp4' ? 'play' : 'image'} size={13} />
-                    </span>
-                  )}
-                </button>
-              )
-            })}
+            {slides.map((slide, index) => (
+              <ViewerSlideThumbnail
+                activeIndex={activeSlideIndex}
+                index={index}
+                key={slide.id}
+                onSelect={onSlideSelect}
+                slide={slide}
+              />
+            ))}
           </nav>
         </div>
       </div>

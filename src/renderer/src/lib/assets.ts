@@ -63,7 +63,7 @@ async function registerSourceFile(file: File): Promise<string | null> {
   }
 }
 
-function createThumbnail(image: HTMLImageElement): Promise<string> {
+export function createThumbnail(image: HTMLImageElement): Promise<string> {
   const canvas = document.createElement('canvas')
   canvas.width = 320
   canvas.height = 200
