@@ -130,6 +130,113 @@
   color: var(--ui-text);
 }
 
+/* Web authoring deliberately reuses the desktop's compact control language.
+   The mode switch stays in one fixed toolbar slot so entering Edit never
+   causes the Canvas/Fit controls or slide strip to jump. */
+.web-editor-divider {
+  flex: 0 0 1px;
+  margin: 0 2px;
+}
+
+.web-workspace-mode {
+  align-items: center;
+  background: var(--ui-input);
+  border: 1px solid var(--ui-outline);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  height: var(--control-height);
+  padding: 3px;
+}
+
+.web-workspace-mode button {
+  align-items: center;
+  background: transparent;
+  border-radius: var(--radius-xs);
+  color: var(--ui-text-muted);
+  display: inline-flex;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+}
+
+.web-workspace-mode button:hover {
+  background: var(--ui-hover);
+  color: var(--ui-text);
+}
+
+.web-workspace-mode button[data-active="true"] {
+  background: var(--ui-active);
+  color: var(--ui-text);
+}
+
+.web-editor-save {
+  align-items: center;
+  background: var(--ui-input);
+  border: 1px solid var(--ui-outline);
+  border-radius: var(--radius-sm);
+  color: var(--ui-text-muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  height: var(--control-height);
+  justify-content: center;
+  min-width: 112px;
+  padding: 0 10px;
+}
+
+.web-editor-save[data-dirty="true"] {
+  background: var(--ui-active);
+  border-color: var(--ui-active);
+  color: var(--ui-text);
+}
+
+.web-editor-save[data-dirty="true"]:hover { background: var(--ui-active-hover); }
+.web-editor-save:disabled { background: var(--ui-input); }
+
+.web-editor-drawer {
+  bottom: 0;
+  top: var(--chrome-height);
+}
+
+.web-editor-active .web-editor-drawer {
+  border-top: 1px solid var(--ui-outline);
+}
+
+.web-editor-message {
+  align-items: center;
+  background: var(--ui-input);
+  border: 1px solid var(--error);
+  border-radius: var(--radius-md);
+  bottom: 18px;
+  box-shadow: var(--shadow-panel);
+  color: var(--ui-text);
+  display: flex;
+  gap: 9px;
+  left: 50%;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 9px 10px 9px 12px;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 220;
+}
+
+.web-editor-message > svg { color: var(--error); flex: 0 0 auto; }
+.web-editor-message > span { line-height: 1.4; }
+.web-editor-message > button {
+  align-items: center;
+  background: transparent;
+  border-radius: var(--radius-xs);
+  color: var(--ui-text-muted);
+  display: flex;
+  height: 26px;
+  justify-content: center;
+  margin-left: auto;
+  width: 26px;
+}
+.web-editor-message > button:hover { background: var(--ui-hover); color: var(--ui-text); }
+
 .viewer-counter {
   transition: opacity var(--duration-fast) ease, transform var(--duration-base) var(--ease-out);
 }
@@ -169,12 +276,21 @@
   .web-viewer-top-bar .canvas-options[data-visible="false"] { transform: none; }
   .web-viewer-top-bar .mode-switcher { flex: 0 0 auto; }
   .web-viewer-top-actions { display: none; }
+  .web-workspace-mode button span,
+  .web-editor-save span { display: none; }
+  .web-editor-save { min-width: var(--control-height); padding: 0; width: var(--control-height); }
   .web-viewer-top-bar .mode-button span,
   .web-viewer-top-bar .viewport-toggle-label { display: none; }
   .web-viewer-top-bar .mode-button { padding: 0 8px; }
   .web-viewer-top-bar .view-option-button { width: 48px; }
   .web-viewer-top-bar .topbar-viewport-marker { width: 96px; }
   .web-viewer-top-bar .topbar-viewport-marker > span:first-child { display: none; }
+}
+
+@media (max-width: 560px) {
+  .web-editor-divider,
+  .web-viewer-download { display: none; }
+  .web-editor-drawer { width: min(var(--panel-width), calc(100vw - 46px)); }
 }
 
 .web-brand {

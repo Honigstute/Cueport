@@ -67,10 +67,12 @@ References, media playback, and keyboard behavior consistent.
 1. **Permissions foundation — complete:** Viewer, Editor, Admin, protected
    Owner, presentation-scoped edit checks, desktop Editor login, and role-aware
    account management.
-2. **Edit shell:** authenticated editor snapshot endpoint, shared Sequence and
-   References panels, Inspector, and the stable Presentation / Edit switch.
-3. **Media and save:** drag/drop, PNG conversion, server manifest reuse,
-   progress, atomic save, and conflict handling.
+2. **Edit shell — complete:** the authenticated publication response contains
+   an editor-only asset manifest; the viewer reuses Sequence, References,
+   Inspector, and a stable Present / Edit switch.
+3. **Media and save — complete:** picker and drag/drop imports, large opaque PNG
+   conversion, server manifest reuse, in-button progress, atomic save, and
+   stale-editor conflict handling.
 4. **Web library parity:** create presentation, choose thumbnail, rename,
    reorder, delete, and presentation access from the same dashboard patterns.
 5. **Parity verification:** keyboard controls, viewport/frame settings,

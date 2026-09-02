@@ -56,7 +56,7 @@ pnpm dist:win
 - [`src/renderer`](src/renderer) owns the React presentation experience and does not import Electron.
 - [`src/shared/presentation.ts`](src/shared/presentation.ts) is the runtime-independent, versioned presentation document and settings validator.
 - [`src/shared/projects.ts`](src/shared/projects.ts) contains desktop runtime messages; opaque source keys and local URLs never enter the portable document.
-- [`apps/web`](apps/web) contains the owner dashboard, publishing API, and read-only client viewer.
+- [`apps/web`](apps/web) contains the account dashboard, publishing API, presentation viewer, and permission-gated web editor.
 - [`deploy`](deploy) contains the reproducible system service, backup, proxy, smoke-test, and release activation definitions.
 
 The Electron renderer is sandboxed, context-isolated, and has Node integration disabled. Saved asset references are relative keys such as `assets/<id>.png` or `assets/<id>.mp4`, never absolute filesystem paths. MP4 files are streamed with byte-range support instead of being loaded into memory. Original version-1 desktop projects are migrated when read and are written in the portable format on their next save.
@@ -66,8 +66,10 @@ See [`docs/PRESENTATION_FORMAT.md`](docs/PRESENTATION_FORMAT.md) for the documen
 ## Desktop and web together
 
 `pnpm verify` tests and builds both applications. The desktop app remains the
-editor and local library; the web service stores one current published version
-per presentation and serves revocable, unguessable client links.
+local-first library and works without the server. The web service stores one
+current published version per presentation, serves revocable client links, and
+lets an authorized Editor, Admin, or the Owner edit that presentation in the
+browser.
 
 Publishing from the desktop app:
 
@@ -79,7 +81,11 @@ Publishing from the desktop app:
 
 The web dashboard is hosted at `https://cueport.steveschreiner.de`. It lists
 published presentations, manages role-based accounts, and can copy, disable, or
-delete client links. Signed-in accounts can open shared presentations and use C
+delete client links. Authorized presentation managers can switch from Present
+to Edit in the viewer top bar, use the shared Sequence, References, Canvas, and
+Inspector controls, and save an atomic replacement of the live presentation.
+Unchanged media is reused rather than uploaded again. Signed-in accounts can
+open shared presentations and use C
 or the comment button to join artwork-anchored discussions. Right-clicking the
 artwork offers **Create Comment** and **Place Reference** directly. A short click
 opens a discussion pin; its creator (or the owner) can drag it to a new point.

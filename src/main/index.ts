@@ -20,7 +20,7 @@ import {
   type PresentationDocument
 } from '../shared/presentation'
 import { resolveByteRange } from './httpRange'
-import { shouldOptimizeLargePng } from './pngOptimization'
+import { shouldOptimizeLargePng } from '../shared/pngOptimization'
 import { configurePublishingHandlers } from './publishing'
 
 const DEVELOPMENT_RENDERER_URL = process.env.ELECTRON_RENDERER_URL

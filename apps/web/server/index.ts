@@ -79,6 +79,8 @@ interface DraftAssetInput {
 interface DraftRequestBody {
   document: unknown
   assets: DraftAssetInput[]
+  /** Web editors use this optimistic lock so an older browser tab cannot overwrite newer work. */
+  baseRevisionId?: string
 }
 
 interface UserRow extends AuthenticatedUser {}
@@ -435,6 +437,12 @@ async function start(): Promise<void> {
     const editor = await requireEditor(request)
     const body = request.body as DraftRequestBody
     const document = parsePresentationDocument(body?.document)
+    if (body?.baseRevisionId != null && (
+      typeof body.baseRevisionId !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.baseRevisionId)
+    )) {
+      throw new ApiError(400, 'The editor version is invalid. Reload the presentation and try again.')
+    }
     const existingManagement = await requirePresentationManager(pool, document.id, editor, { allowMissing: true })
     const presentationOwnerId = existingManagement?.ownerId ?? editor.id
     if (document.brand?.mimeType === 'image/svg+xml') {
@@ -479,10 +487,13 @@ async function start(): Promise<void> {
     )
 
     const draft = await withTransaction(pool, async (client) => {
-      const existing = await client.query<{ owner_id: string }>(
-        'SELECT owner_id FROM cueport_presentations WHERE id = $1 FOR UPDATE',
+      const existing = await client.query<{ owner_id: string; published_revision_id: string | null }>(
+        'SELECT owner_id, published_revision_id FROM cueport_presentations WHERE id = $1 FOR UPDATE',
         [document.id]
       )
+      if (body.baseRevisionId && existing.rows[0]?.published_revision_id !== body.baseRevisionId) {
+        throw new ApiError(409, 'This presentation changed in another session. Reload it before saving your changes.')
+      }
       const lockedOwnerId = existing.rows[0]
         ? (await requirePresentationManager(client, document.id, editor))!.ownerId
         : editor.id
@@ -822,21 +833,43 @@ async function start(): Promise<void> {
     const { token } = request.params as { token: string }
     const user = await userFromRequest(request)
     const published = await requirePublishedPresentationAccess(pool, token, user)
-    const assets = await pool.query<{ id: string; asset_key: string }>(
-      'SELECT id, asset_key FROM cueport_revision_assets WHERE revision_id = $1',
+    const assets = await pool.query<{
+      id: string
+      asset_key: string
+      mime_type: string
+      expected_bytes: string
+      stored_bytes: string | null
+      content_sha256: string | null
+    }>(
+      `SELECT id, asset_key, mime_type, expected_bytes, stored_bytes, content_sha256
+       FROM cueport_revision_assets
+       WHERE revision_id = $1 AND uploaded_at IS NOT NULL`,
       [published.revisionId]
     )
+    const assetUrls = Object.fromEntries(assets.rows.map((asset) => [
+      asset.asset_key,
+      `/api/share/${encodeURIComponent(token)}/assets/${asset.id}`
+    ]))
     return {
       document: published.document,
       access: {
         isPublic: published.isPublic,
         authenticated: Boolean(user),
-        canComment: Boolean(user)
+        canComment: Boolean(user),
+        canEdit: published.canEdit
       },
-      assets: Object.fromEntries(assets.rows.map((asset) => [
-        asset.asset_key,
-        `/api/share/${encodeURIComponent(token)}/assets/${asset.id}`
-      ]))
+      assets: assetUrls,
+      editor: published.canEdit ? {
+        presentationId: published.presentationId,
+        revisionId: published.revisionId,
+        assets: assets.rows.map((asset) => ({
+          key: asset.asset_key,
+          url: assetUrls[asset.asset_key],
+          mimeType: asset.mime_type,
+          bytes: Number(asset.stored_bytes ?? asset.expected_bytes),
+          sha256: asset.content_sha256
+        }))
+      } : null
     }
   })
 

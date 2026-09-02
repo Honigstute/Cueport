@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LARGE_PNG_MIN_BYTES, inspectPngTransparency, shouldOptimizeLargePng } from './pngOptimization'
+import { LARGE_PNG_MIN_BYTES, inspectPngTransparency, shouldOptimizeLargePng } from '../shared/pngOptimization'
 
 const SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 

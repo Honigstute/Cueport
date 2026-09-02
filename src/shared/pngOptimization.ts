@@ -16,9 +16,8 @@ function chunkName(bytes: Uint8Array, offset: number): string {
 }
 
 /**
- * Reads only PNG structure metadata; pixel decoding is unnecessary. `null`
- * means the supplied prefix ended before transparency could be proven either
- * way, so callers can conservatively keep the original PNG.
+ * Reads only PNG structure metadata in both Node and browsers. `null` means
+ * transparency could not be proven either way, so the original PNG is kept.
  */
 export function inspectPngTransparency(bytes: Uint8Array): boolean | null {
   if (bytes.length < PNG_SIGNATURE.length || PNG_SIGNATURE.some((value, index) => bytes[index] !== value)) {

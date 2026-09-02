@@ -5,41 +5,55 @@ import type { DisplayMode, SlideAsset } from '../../../../src/renderer/src/types
 
 interface ViewerControlsProps {
   activeSlideIndex: number
+  canEdit: boolean
   canComment: boolean
   commentsEnabled: boolean
   downloadUrl: string
+  editorDirty: boolean
+  editorSavePhase: 'idle' | 'preparing' | 'uploading' | 'finalizing' | 'saved'
   isVisible: boolean
   mode: DisplayMode
   slides: SlideAsset[]
+  workspaceMode: 'presentation' | 'edit'
   viewportEnabled: boolean
   viewportHeight: number
   viewportMarker: number | null
   zoom: number
   onCommentsToggle: () => void
+  onEditorSave: () => void
+  onHome: () => void
   onModeChange: (mode: DisplayMode) => void
   onSlideSelect: (index: number) => void
   onViewportToggle: () => void
   onViewportMarkerChange: (marker: number | null) => void
+  onWorkspaceModeChange: (mode: 'presentation' | 'edit') => void
   onZoomReset: () => void
 }
 
 export function ViewerControls({
   activeSlideIndex,
+  canEdit,
   canComment,
   commentsEnabled,
   downloadUrl,
+  editorDirty,
+  editorSavePhase,
   isVisible,
   mode,
   slides,
+  workspaceMode,
   viewportEnabled,
   viewportHeight,
   viewportMarker,
   zoom,
   onCommentsToggle,
+  onEditorSave,
+  onHome,
   onModeChange,
   onSlideSelect,
   onViewportToggle,
   onViewportMarkerChange,
+  onWorkspaceModeChange,
   onZoomReset
 }: ViewerControlsProps): React.JSX.Element {
   const slideStripRef = useRef<HTMLElement>(null)
@@ -47,6 +61,16 @@ export function ViewerControls({
   const foldIsInvalid = foldDraft !== '' && (
     Number(foldDraft) <= 0 || Number(foldDraft) >= viewportHeight
   )
+  const isSaving = editorSavePhase === 'preparing' || editorSavePhase === 'uploading' || editorSavePhase === 'finalizing'
+  const saveLabel = editorSavePhase === 'preparing'
+    ? 'Preparing…'
+    : editorSavePhase === 'uploading'
+      ? 'Uploading…'
+      : editorSavePhase === 'finalizing'
+        ? 'Finishing…'
+        : editorSavePhase === 'saved'
+          ? 'Saved'
+          : 'Save changes'
 
   useEffect(() => {
     setFoldDraft(viewportMarker?.toString() ?? '')
@@ -83,10 +107,10 @@ export function ViewerControls({
     >
       <div className="top-bar-content web-viewer-top-bar-content">
         <div className="document-context web-viewer-document-context">
-          <a className="icon-button web-viewer-home" href="/" title="Back to presentations">
+          <button className="icon-button web-viewer-home" onClick={onHome} title="Back to presentations" type="button">
             <Icon name="home" size={17} />
             <span className="sr-only">Back to presentations</span>
-          </a>
+          </button>
           {canComment && (
             <button
               aria-label={commentsEnabled ? 'Hide comments' : 'Show comments'}
@@ -104,6 +128,44 @@ export function ViewerControls({
             <Icon name="download" size={17} />
             <span className="sr-only">Download full presentation</span>
           </a>
+          {canEdit && (
+            <>
+              <span aria-hidden="true" className="top-bar-divider web-editor-divider" />
+              <div aria-label="Workspace mode" className="web-workspace-mode" role="group">
+                <button
+                  aria-pressed={workspaceMode === 'presentation'}
+                  data-active={workspaceMode === 'presentation'}
+                  onClick={() => onWorkspaceModeChange('presentation')}
+                  title="Presentation mode"
+                  type="button"
+                >
+                  <Icon name="eye" size={15} />
+                  <span>Present</span>
+                </button>
+                <button
+                  aria-pressed={workspaceMode === 'edit'}
+                  data-active={workspaceMode === 'edit'}
+                  onClick={() => onWorkspaceModeChange('edit')}
+                  title="Edit presentation"
+                  type="button"
+                >
+                  <Icon name="edit" size={15} />
+                  <span>Edit</span>
+                </button>
+              </div>
+              <button
+                className="web-editor-save"
+                data-dirty={editorDirty}
+                disabled={workspaceMode !== 'edit' || isSaving || (!editorDirty && editorSavePhase !== 'saved')}
+                onClick={onEditorSave}
+                title={editorDirty ? 'Save changes to the web presentation' : 'No unsaved changes'}
+                type="button"
+              >
+                <Icon name={editorSavePhase === 'saved' ? 'check' : 'upload'} size={15} />
+                <span>{saveLabel}</span>
+              </button>
+            </>
+          )}
         </div>
 
         <div aria-label="View controls" className="view-controls">

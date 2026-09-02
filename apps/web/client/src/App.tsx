@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { PresentationDocument } from '../../../../src/shared/presentation'
 import { Stage } from '../../../../src/renderer/src/components/Stage'
+import { Filmstrip } from '../../../../src/renderer/src/components/Filmstrip'
+import { Inspector } from '../../../../src/renderer/src/components/Inspector'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
 import { useManagedTimeout } from '../../../../src/renderer/src/hooks/useManagedTimeout'
 import { useAdjacentMediaPreload } from '../../../../src/renderer/src/hooks/useAdjacentMediaPreload'
 import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
+import { importWebLogo, importWebMedia } from './webEditorMedia'
 import { nextZoomStop } from '../../../../src/renderer/src/lib/zoom'
-import type { BrandSettings, DisplayMode, ReferenceAsset, SlideAsset } from '../../../../src/renderer/src/types'
+import { createInitialState, presentationReducer, type PresentationAction } from '../../../../src/renderer/src/state/presentationReducer'
+import type { CanvasFrame, ViewportCategory, ViewportSize } from '../../../../src/renderer/src/types'
 import { canEditPresentations, canManageAccounts } from '../../../../src/shared/accounts'
 import { PublicationCard, type PublishedPresentation } from './PublicationCard'
 import { ViewerControls } from './ViewerControls'
@@ -20,6 +24,13 @@ import { ServerStoragePanel, type ServerStorageOverview } from './ServerStorageP
 import { api, ApiRequestError } from './api'
 import type { SessionResponse, UserProfile } from './accountTypes'
 import {
+  documentFromEditorState,
+  saveEditorPresentation,
+  type EditorSavePhase,
+  type PendingEditorAsset,
+  type PublishedEditorAsset
+} from './webEditorPublication'
+import {
   consumePrivatePresentationReturnPath,
   normalizePrivatePresentationReturnPath,
   rememberPrivatePresentationReturnPath
@@ -32,13 +43,13 @@ interface SharedPresentationResponse {
     isPublic: boolean
     authenticated: boolean
     canComment: boolean
+    canEdit: boolean
   }
-}
-
-interface ViewerSettings {
-  mode: DisplayMode
-  viewportEnabled: boolean
-  viewportMarker: number | null
+  editor: {
+    presentationId: string
+    revisionId: string
+    assets: PublishedEditorAsset[]
+  } | null
 }
 
 function isTextEntry(target: EventTarget | null): boolean {
@@ -306,33 +317,95 @@ function SharedViewer({ token, onAuthenticationRequired }: {
   onAuthenticationRequired: () => void
 }): React.JSX.Element {
   const [shared, setShared] = useState<SharedPresentationResponse | null>(null)
-  const [view, setView] = useState<ViewerSettings | null>(null)
+  const [state, dispatch] = useReducer(presentationReducer, createInitialState())
   const [error, setError] = useState<string | null>(null)
-  const [activeIndex, setActiveIndex] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [fitWidth, setFitWidth] = useState(0)
   const [isInterfaceVisible, setIsInterfaceVisible] = useState(true)
   const [commentsEnabled, setCommentsEnabled] = useState(false)
+  const [workspaceMode, setWorkspaceMode] = useState<'presentation' | 'edit'>('presentation')
+  const [leftPanelTab, setLeftPanelTab] = useState<'sequence' | 'references'>('sequence')
+  const [isDirty, setIsDirty] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const [isDropActive, setIsDropActive] = useState(false)
+  const [savePhase, setSavePhase] = useState<EditorSavePhase | 'idle' | 'saved'>('idle')
+  const [editorMessage, setEditorMessage] = useState<string | null>(null)
+  const [leavePromptOpen, setLeavePromptOpen] = useState(false)
   const commentLayerRef = useRef<CommentLayerHandle>(null)
+  const mediaInputRef = useRef<HTMLInputElement>(null)
+  const referenceInputRef = useRef<HTMLInputElement>(null)
+  const pendingAssetsRef = useRef(new Map<string, PendingEditorAsset>())
+  const currentAssetsRef = useRef(new Map<string, PublishedEditorAsset>())
+  const posterKeysRef = useRef(new Map<string, string>())
+  const localUrlsRef = useRef(new Set<string>())
+  const lastNonPhoneFrameRef = useRef<Exclude<CanvasFrame, 'phone'>>('none')
+
+  const releaseLocalUrls = useCallback((): void => {
+    for (const url of localUrlsRef.current) URL.revokeObjectURL(url)
+    localUrlsRef.current.clear()
+  }, [])
+
+  const hydrate = useCallback((response: SharedPresentationResponse): void => {
+    releaseLocalUrls()
+    pendingAssetsRef.current.clear()
+    currentAssetsRef.current = new Map(response.editor?.assets.map((asset) => [asset.key, asset]) ?? [])
+    posterKeysRef.current = new Map([
+      ...response.document.slides,
+      ...response.document.references
+    ].flatMap((media) => media.posterKey ? [[media.id, media.posterKey] as const] : []))
+
+    const media = (item: PresentationDocument['slides'][number]) => {
+      const url = response.assets[item.assetKey] || ''
+      return {
+        id: item.id,
+        name: item.name,
+        width: item.width,
+        height: item.height,
+        mimeType: item.mimeType,
+        origin: 'local' as const,
+        // The portable asset key is also the stable web-editor source identity.
+        sourceKey: item.assetKey,
+        url,
+        thumbnailUrl: item.posterKey
+          ? response.assets[item.posterKey] || ''
+          : item.mimeType.startsWith('image/') ? url : ''
+      }
+    }
+    dispatch({
+      type: 'RESTORE_PRESENTATION',
+      slides: response.document.slides.map(media),
+      references: response.document.references.map(media),
+      activeId: response.document.activeSlideId,
+      settings: response.document.settings,
+      logo: response.document.brand ? {
+        name: response.document.brand.name,
+        sourceKey: response.document.brand.assetKey,
+        url: response.assets[response.document.brand.assetKey] || ''
+      } : null
+    })
+    lastNonPhoneFrameRef.current = response.document.settings.canvasFrame === 'phone'
+      ? 'none'
+      : response.document.settings.canvasFrame
+    setShared(response)
+    setZoom(1)
+    setFitWidth(0)
+    setIsDirty(false)
+  }, [releaseLocalUrls])
 
   useEffect(() => {
     let active = true
     setShared(null)
-    setView(null)
     setError(null)
-    setActiveIndex(0)
     setZoom(1)
     setIsInterfaceVisible(true)
     setCommentsEnabled(false)
+    setWorkspaceMode('presentation')
+    setSavePhase('idle')
+    setEditorMessage(null)
     api<SharedPresentationResponse>(`/api/share/${encodeURIComponent(token)}`)
       .then((response) => {
         if (!active) return
-        setShared(response)
-        setView({
-          mode: response.document.settings.mode,
-          viewportEnabled: response.document.settings.viewportEnabled,
-          viewportMarker: response.document.settings.viewportMarker
-        })
+        hydrate(response)
       })
       .catch((cause) => {
         if (!active) return
@@ -343,49 +416,40 @@ function SharedViewer({ token, onAuthenticationRequired }: {
         setError(cause instanceof Error ? cause.message : 'This presentation is unavailable.')
       })
     return () => { active = false }
-  }, [onAuthenticationRequired, token])
+  }, [hydrate, onAuthenticationRequired, token])
 
-  const assets = useMemo(() => {
-    if (!shared) return { slides: [] as SlideAsset[], references: [] as ReferenceAsset[], brand: null as BrandSettings | null }
-    const media = (item: PresentationDocument['slides'][number]): SlideAsset => {
-      const url = shared.assets[item.assetKey] || ''
-      return {
-        id: item.id,
-        name: item.name,
-        width: item.width,
-        height: item.height,
-        mimeType: item.mimeType,
-        origin: 'local',
-        sourceKey: null,
-        url,
-        // Images are already suitable previews. Videos use their uploaded poster.
-        thumbnailUrl: item.posterKey
-          ? shared.assets[item.posterKey] || ''
-          : item.mimeType.startsWith('image/') ? url : ''
-      }
-    }
-    return {
-      slides: shared.document.slides.map(media),
-      references: shared.document.references.map(media),
-      brand: shared.document.brand ? {
-        ...shared.document.settings.brand,
-        logoName: shared.document.brand.name,
-        logoSourceKey: null,
-        logoUrl: shared.assets[shared.document.brand.assetKey] || null
-      } : { ...shared.document.settings.brand, logoName: null, logoSourceKey: null, logoUrl: null }
-    }
-  }, [shared])
+  useEffect(() => () => releaseLocalUrls(), [releaseLocalUrls])
 
-  useAdjacentMediaPreload(assets.slides, activeIndex)
+  useEffect(() => {
+    if (!isDirty) return
+    const warnBeforeUnload = (event: BeforeUnloadEvent): void => event.preventDefault()
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [isDirty])
+
+  const activeIndex = Math.max(0, state.slides.findIndex((slide) => slide.id === state.activeId))
+  const slide = state.slides[activeIndex] ?? state.slides[0] ?? null
+  useAdjacentMediaPreload(state.slides, activeIndex)
+
+  const update = useCallback((action: PresentationAction, persisted = false): void => {
+    dispatch(action)
+    if (persisted && workspaceMode === 'edit') {
+      setIsDirty(true)
+      setSavePhase('idle')
+      setEditorMessage(null)
+    }
+  }, [workspaceMode])
 
   const navigate = useCallback((direction: -1 | 1): void => {
-    setActiveIndex((current) => Math.max(0, Math.min(assets.slides.length - 1, current + direction)))
-  }, [assets.slides.length])
+    const next = Math.max(0, Math.min(state.slides.length - 1, activeIndex + direction))
+    const nextSlide = state.slides[next]
+    if (nextSlide) dispatch({ type: 'SELECT_SLIDE', id: nextSlide.id })
+  }, [activeIndex, state.slides])
 
   const zoomBy = useCallback((direction: -1 | 1): void => {
-    setView((current) => current ? { ...current, mode: 'canvas' } : current)
+    update({ type: 'SET_MODE', mode: 'canvas' }, true)
     setZoom((current) => nextZoomStop(current, direction))
-  }, [])
+  }, [update])
 
   const createCommentAt = useCallback((clientX: number, clientY: number): void => {
     setIsInterfaceVisible(true)
@@ -411,21 +475,19 @@ function SharedViewer({ token, onAuthenticationRequired }: {
       }
       if (event.key.toLowerCase() === 'f') {
         event.preventDefault()
-        setView((current) => current ? { ...current, mode: 'canvas' } : current)
+        update({ type: 'SET_MODE', mode: 'canvas' }, true)
       }
       if (event.key.toLowerCase() === 'g') {
         event.preventDefault()
-        setView((current) => current ? { ...current, mode: 'fit-width' } : current)
+        update({ type: 'SET_MODE', mode: 'fit-width' }, true)
       }
       if (event.key.toLowerCase() === 'v') {
         event.preventDefault()
-        setView((current) => current?.mode === 'canvas'
-          ? { ...current, viewportEnabled: !current.viewportEnabled }
-          : current)
+        if (state.mode === 'canvas') update({ type: 'SET_VIEWPORT_ENABLED', value: !state.viewportEnabled }, true)
       }
       if (event.key === '0') {
         event.preventDefault()
-        setView((current) => current ? { ...current, mode: 'canvas' } : current)
+        update({ type: 'SET_MODE', mode: 'canvas' }, true)
         setZoom(1)
       }
       if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomBy(1) }
@@ -433,61 +495,254 @@ function SharedViewer({ token, onAuthenticationRequired }: {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [navigate, shared?.access.canComment, zoomBy])
+  }, [navigate, shared?.access.canComment, state.mode, state.viewportEnabled, update, zoomBy])
+
+  const addFiles = useCallback(async (files: File[], collection: 'slides' | 'references'): Promise<void> => {
+    if (files.length === 0) return
+    setIsImporting(true)
+    setEditorMessage(null)
+    const batchKeys: string[] = []
+    const batchUrls: string[] = []
+    const batchIds: string[] = []
+    try {
+      const imported = []
+      for (const file of files) {
+        const item = await importWebMedia(file, collection)
+        imported.push(item.asset)
+        batchIds.push(item.asset.id)
+        posterKeysRef.current.set(item.asset.id, item.posterKey ?? '')
+        for (const [key, pending] of item.pending) {
+          pendingAssetsRef.current.set(key, pending)
+          batchKeys.push(key)
+        }
+        if (item.asset.url.startsWith('blob:')) {
+          localUrlsRef.current.add(item.asset.url)
+          batchUrls.push(item.asset.url)
+        }
+      }
+      update({ type: collection === 'slides' ? 'ADD_SLIDES' : 'ADD_REFERENCES', [collection]: imported } as PresentationAction, true)
+    } catch (cause) {
+      for (const key of batchKeys) pendingAssetsRef.current.delete(key)
+      for (const id of batchIds) posterKeysRef.current.delete(id)
+      for (const url of batchUrls) {
+        URL.revokeObjectURL(url)
+        localUrlsRef.current.delete(url)
+      }
+      setEditorMessage(cause instanceof Error ? cause.message : 'The selected media could not be added.')
+    } finally {
+      setIsImporting(false)
+    }
+  }, [update])
+
+  useEffect(() => {
+    if (workspaceMode !== 'edit' || !shared?.access.canEdit) {
+      setIsDropActive(false)
+      return
+    }
+    const hasFiles = (event: DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes('Files')
+    const showDrop = (event: DragEvent): void => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+      setIsDropActive(true)
+    }
+    const hideDrop = (event: DragEvent): void => {
+      if (event.relatedTarget === null) setIsDropActive(false)
+    }
+    const acceptDrop = (event: DragEvent): void => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      setIsDropActive(false)
+      void addFiles(Array.from(event.dataTransfer?.files ?? []), leftPanelTab === 'sequence' ? 'slides' : 'references')
+    }
+    window.addEventListener('dragenter', showDrop)
+    window.addEventListener('dragover', showDrop)
+    window.addEventListener('dragleave', hideDrop)
+    window.addEventListener('drop', acceptDrop)
+    return () => {
+      window.removeEventListener('dragenter', showDrop)
+      window.removeEventListener('dragover', showDrop)
+      window.removeEventListener('dragleave', hideDrop)
+      window.removeEventListener('drop', acceptDrop)
+    }
+  }, [addFiles, leftPanelTab, shared?.access.canEdit, workspaceMode])
+
+  const removeMedia = useCallback((id: string, collection: 'slides' | 'references'): void => {
+    if (collection === 'slides' && state.slides.length <= 1) {
+      setEditorMessage('A presentation needs at least one Sequence item.')
+      return
+    }
+    const media = (collection === 'slides' ? state.slides : state.references).find((item) => item.id === id)
+    if (media?.url.startsWith('blob:')) {
+      URL.revokeObjectURL(media.url)
+      localUrlsRef.current.delete(media.url)
+    }
+    if (media?.sourceKey) pendingAssetsRef.current.delete(media.sourceKey)
+    const posterKey = posterKeysRef.current.get(id)
+    if (posterKey) pendingAssetsRef.current.delete(posterKey)
+    posterKeysRef.current.delete(id)
+    update({ type: collection === 'slides' ? 'REMOVE_SLIDE' : 'REMOVE_REFERENCE', id }, true)
+  }, [state.references, state.slides, update])
+
+  const addLogo = useCallback(async (file: File): Promise<void> => {
+    setIsImporting(true)
+    setEditorMessage(null)
+    try {
+      const logo = await importWebLogo(file)
+      if (state.brand.logoUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(state.brand.logoUrl)
+        localUrlsRef.current.delete(state.brand.logoUrl)
+      }
+      if (state.brand.logoSourceKey) pendingAssetsRef.current.delete(state.brand.logoSourceKey)
+      pendingAssetsRef.current.set(logo.assetKey, logo.pending)
+      if (logo.url.startsWith('blob:')) localUrlsRef.current.add(logo.url)
+      update({ type: 'SET_LOGO', name: logo.name, sourceKey: logo.assetKey, url: logo.url }, true)
+    } catch (cause) {
+      setEditorMessage(cause instanceof Error ? cause.message : 'The client mark could not be added.')
+    } finally {
+      setIsImporting(false)
+    }
+  }, [state.brand.logoSourceKey, state.brand.logoUrl, update])
+
+  const removeLogo = useCallback((): void => {
+    if (state.brand.logoUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(state.brand.logoUrl)
+      localUrlsRef.current.delete(state.brand.logoUrl)
+    }
+    if (state.brand.logoSourceKey) pendingAssetsRef.current.delete(state.brand.logoSourceKey)
+    update({ type: 'REMOVE_LOGO' }, true)
+  }, [state.brand.logoSourceKey, state.brand.logoUrl, update])
+
+  const save = useCallback(async (): Promise<void> => {
+    if (!shared?.editor || !isDirty || savePhase === 'preparing' || savePhase === 'uploading' || savePhase === 'finalizing') return
+    setEditorMessage(null)
+    try {
+      const document = documentFromEditorState(state, shared.document, new Map(
+        [...posterKeysRef.current].filter((entry): entry is [string, string] => Boolean(entry[1]))
+      ))
+      await saveEditorPresentation({
+        baseRevisionId: shared.editor.revisionId,
+        currentAssets: currentAssetsRef.current,
+        document,
+        onPhase: setSavePhase,
+        pendingAssets: pendingAssetsRef.current
+      })
+      const refreshed = await api<SharedPresentationResponse>(`/api/share/${encodeURIComponent(token)}`)
+      hydrate(refreshed)
+      setSavePhase('saved')
+      window.setTimeout(() => setSavePhase((phase) => phase === 'saved' ? 'idle' : phase), 1800)
+    } catch (cause) {
+      setSavePhase('idle')
+      setEditorMessage(cause instanceof Error ? cause.message : 'The presentation could not be saved.')
+    }
+  }, [hydrate, isDirty, savePhase, shared, state, token])
 
   if (error) return <main className="share-message"><Brand /><h1>Presentation unavailable</h1><p>{error}</p></main>
-  if (!shared || !assets.brand || !view) return <main className="share-message"><Brand /><p>Loading presentation…</p></main>
-  const settings = shared.document.settings
-  const slide = assets.slides[activeIndex] ?? assets.slides[0] ?? null
+  if (!shared) return <main className="share-message"><Brand /><p>Loading presentation…</p></main>
+  const canEdit = shared.access.canEdit && Boolean(shared.editor)
+  const editorIsVisible = canEdit && workspaceMode === 'edit' && isInterfaceVisible
 
   return (
-    <div className={`public-viewer-shell app-shell${isInterfaceVisible ? '' : ' web-viewer-interface-hidden'}`}>
+    <div className={`public-viewer-shell app-shell${isInterfaceVisible ? '' : ' web-viewer-interface-hidden'}${editorIsVisible ? ' chrome-all web-editor-active' : ''}`}>
+      <input
+        accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4"
+        hidden
+        multiple
+        onChange={(event) => {
+          void addFiles(Array.from(event.target.files ?? []), 'slides')
+          event.target.value = ''
+        }}
+        ref={mediaInputRef}
+        type="file"
+      />
+      <input
+        accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4"
+        hidden
+        multiple
+        onChange={(event) => {
+          void addFiles(Array.from(event.target.files ?? []), 'references')
+          event.target.value = ''
+        }}
+        ref={referenceInputRef}
+        type="file"
+      />
       <ViewerControls
+        canEdit={canEdit}
         canComment={shared.access.canComment}
         commentsEnabled={commentsEnabled}
         downloadUrl={`/api/share/${encodeURIComponent(token)}/download`}
+        editorDirty={isDirty}
+        editorSavePhase={savePhase}
         isVisible={isInterfaceVisible}
-        mode={view.mode}
+        mode={state.mode}
         activeSlideIndex={activeIndex}
         onCommentsToggle={() => setCommentsEnabled((enabled) => !enabled)}
-        onModeChange={(mode) => setView((current) => current ? { ...current, mode } : current)}
-        onSlideSelect={setActiveIndex}
-        onViewportMarkerChange={(viewportMarker) => setView((current) => current ? { ...current, viewportMarker } : current)}
-        onViewportToggle={() => setView((current) => current ? { ...current, viewportEnabled: !current.viewportEnabled } : current)}
+        onEditorSave={() => void save()}
+        onHome={() => {
+          if (isDirty) setLeavePromptOpen(true)
+          else location.assign('/')
+        }}
+        onModeChange={(mode) => update({ type: 'SET_MODE', mode }, true)}
+        onSlideSelect={(index) => {
+          const selected = state.slides[index]
+          if (selected) dispatch({ type: 'SELECT_SLIDE', id: selected.id })
+        }}
+        onViewportMarkerChange={(marker) => update({ type: 'SET_VIEWPORT_MARKER', marker }, true)}
+        onViewportToggle={() => update({ type: 'SET_VIEWPORT_ENABLED', value: !state.viewportEnabled }, true)}
+        onWorkspaceModeChange={setWorkspaceMode}
         onZoomReset={() => setZoom(1)}
-        viewportEnabled={view.viewportEnabled}
-        viewportHeight={settings.viewport.height}
-        viewportMarker={view.viewportMarker}
-        slides={assets.slides}
+        viewportEnabled={state.viewportEnabled}
+        viewportHeight={state.viewport.height}
+        viewportMarker={state.viewportMarker}
+        slides={state.slides}
+        workspaceMode={workspaceMode}
         zoom={zoom}
       />
       <div className="workspace">
+        <div className="chrome-drawer chrome-drawer-left web-editor-drawer" aria-hidden={!editorIsVisible} inert={!editorIsVisible ? true : undefined}>
+          <Filmstrip
+            activeId={state.activeId}
+            activeTab={leftPanelTab}
+            onChooseMedia={() => mediaInputRef.current?.click()}
+            onChooseReferences={() => referenceInputRef.current?.click()}
+            onMove={(fromIndex, toIndex) => update({ type: 'MOVE_SLIDE', fromIndex, toIndex }, true)}
+            onMoveReference={(fromIndex, toIndex) => update({ type: 'MOVE_REFERENCE', fromIndex, toIndex }, true)}
+            onRemove={(id) => removeMedia(id, 'slides')}
+            onRemoveReference={(id) => removeMedia(id, 'references')}
+            onRename={async (id, name) => update({ type: 'RENAME_SLIDE', id, name }, true)}
+            onSelect={(id) => dispatch({ type: 'SELECT_SLIDE', id })}
+            onTabChange={setLeftPanelTab}
+            references={state.references}
+            sequenceTitles={state.sequenceTitles}
+            slides={state.slides}
+          />
+        </div>
         <Stage
-          background={settings.background}
-          brand={assets.brand}
-          canNavigateNext={activeIndex < assets.slides.length - 1}
+          background={state.background}
+          brand={state.brand}
+          canNavigateNext={activeIndex < state.slides.length - 1}
           canNavigatePrevious={activeIndex > 0}
-          canvasFrame={settings.canvasFrame}
-          canvasImageGlow={settings.canvasImageGlow}
-          canvasRoundedCorners={settings.canvasRoundedCorners}
-          canvasStartAtTop={settings.canvasStartAtTop}
+          canvasFrame={state.canvasFrame}
+          canvasImageGlow={state.canvasImageGlow}
+          canvasRoundedCorners={state.canvasRoundedCorners}
+          canvasStartAtTop={state.canvasStartAtTop}
           chromeMode="hidden"
-          isImporting={false}
-          mode={view.mode}
-          onChooseMedia={() => undefined}
+          isImporting={isImporting}
+          mode={state.mode}
+          onChooseMedia={() => canEdit && workspaceMode === 'edit' && mediaInputRef.current?.click()}
           onFitWidthChange={(_slideId, width) => setFitWidth(width)}
           onNavigate={navigate}
           onCreateCommentAt={shared.access.canComment ? createCommentAt : undefined}
           onZoomChange={setZoom}
-          phoneBrowserBars={settings.phoneBrowserBars}
-          programBarColor={settings.programBarColor}
-          referenceImageShadow={settings.referenceImageShadow}
-          references={assets.references}
+          phoneBrowserBars={state.phoneBrowserBars}
+          programBarColor={state.programBarColor}
+          referenceImageShadow={state.referenceImageShadow}
+          references={state.references}
           slide={slide}
-          viewport={settings.viewport}
-          viewportEnabled={view.viewportEnabled}
-          viewportMarker={view.viewportMarker}
-          zoom={view.mode === 'fit-width' && fitWidth ? 1 : zoom}
+          viewport={state.viewport}
+          viewportEnabled={state.viewportEnabled}
+          viewportMarker={state.viewportMarker}
+          zoom={state.mode === 'fit-width' && fitWidth ? 1 : zoom}
           artworkOverlay={slide && shared.access.canComment ? (
             <CommentLayer
               enabled={commentsEnabled && isInterfaceVisible}
@@ -497,9 +752,75 @@ function SharedViewer({ token, onAuthenticationRequired }: {
             />
           ) : null}
         />
+        <div className="chrome-drawer chrome-drawer-right web-editor-drawer" aria-hidden={!editorIsVisible} inert={!editorIsVisible ? true : undefined}>
+          <Inspector
+            background={state.background}
+            brand={state.brand}
+            canvasFrame={state.canvasFrame}
+            canvasImageGlow={state.canvasImageGlow}
+            canvasRoundedCorners={state.canvasRoundedCorners}
+            canvasStartAtTop={state.canvasStartAtTop}
+            onBackgroundChange={(background) => update({ type: 'SET_BACKGROUND', background }, true)}
+            onCanvasFrameChange={(frame) => {
+              if (frame !== 'phone') lastNonPhoneFrameRef.current = frame
+              update({ type: 'SET_CANVAS_FRAME', frame }, true)
+            }}
+            onCanvasImageGlowChange={(value) => update({ type: 'SET_CANVAS_IMAGE_GLOW', value }, true)}
+            onCanvasRoundedCornersChange={(value) => update({ type: 'SET_CANVAS_ROUNDED_CORNERS', value }, true)}
+            onCanvasStartAtTopChange={(value) => update({ type: 'SET_CANVAS_START_AT_TOP', value }, true)}
+            onLogoFile={(file) => void addLogo(file)}
+            onPatchBrand={(patch) => update({ type: 'PATCH_BRAND', patch }, true)}
+            onPhoneBrowserBarsChange={(patch) => update({ type: 'PATCH_PHONE_BROWSER_BARS', patch }, true)}
+            onProgramBarColorChange={(color) => update({ type: 'SET_PROGRAM_BAR_COLOR', color }, true)}
+            onReferenceImageShadowChange={(value) => update({ type: 'SET_REFERENCE_IMAGE_SHADOW', value }, true)}
+            onRemoveLogo={removeLogo}
+            onViewportCategoryChange={(category: ViewportCategory, viewport: ViewportSize) => {
+              update({ type: 'SET_VIEWPORT', viewport }, true)
+              update({
+                type: 'SET_CANVAS_FRAME',
+                frame: category === 'Mobile' ? 'phone' : lastNonPhoneFrameRef.current
+              }, true)
+            }}
+            onViewportChange={(viewport) => update({ type: 'SET_VIEWPORT', viewport }, true)}
+            phoneBrowserBars={state.phoneBrowserBars}
+            programBarColor={state.programBarColor}
+            referenceImageShadow={state.referenceImageShadow}
+            viewport={state.viewport}
+            viewportEnabled={state.viewportEnabled}
+          />
+        </div>
       </div>
-      {assets.slides.length > 1 && (
-        <div className="viewer-counter" aria-live="polite">{activeIndex + 1} / {assets.slides.length}</div>
+      {editorMessage && (
+        <div className="web-editor-message" role="alert">
+          <Icon name="close" size={14} />
+          <span>{editorMessage}</span>
+          <button aria-label="Dismiss" onClick={() => setEditorMessage(null)} type="button"><Icon name="close" size={13} /></button>
+        </div>
+      )}
+      {isDropActive && (
+        <div className="drop-overlay web-editor-drop-overlay">
+          <div>
+            <Icon name="upload" size={24} />
+            <strong>Release to add to {leftPanelTab === 'sequence' ? 'the Sequence' : 'References'}</strong>
+            <span>JPEG, PNG, WebP, or MP4</span>
+          </div>
+        </div>
+      )}
+      {state.slides.length > 1 && workspaceMode === 'presentation' && (
+        <div className="viewer-counter" aria-live="polite">{activeIndex + 1} / {state.slides.length}</div>
+      )}
+      {leavePromptOpen && (
+        <ConfirmationDialog
+          confirmLabel="Leave without saving"
+          description="Your web edits have not been saved to this presentation."
+          errorMessage="Cueport could not return to the presentation list."
+          eyebrow="Unsaved changes"
+          icon="home"
+          onClose={() => setLeavePromptOpen(false)}
+          onConfirm={() => location.assign('/')}
+          title="Leave this presentation?"
+          tone="danger"
+        />
       )}
     </div>
   )

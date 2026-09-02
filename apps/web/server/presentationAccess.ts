@@ -1,4 +1,5 @@
 import type { Pool, QueryResultRow } from 'pg'
+import { canEditPresentations } from '../../../src/shared/accounts'
 import { parsePresentationDocument, type PresentationDocument } from '../../../src/shared/presentation'
 import type { AuthenticatedUser } from './database'
 import { ApiError } from './http'
@@ -18,6 +19,8 @@ export interface PublishedPresentationContext {
   revisionId: string
   document: PresentationDocument
   isPublic: boolean
+  /** Editing always requires both a capable account role and deck ownership/access. */
+  canEdit: boolean
 }
 
 export type PresentationAccessDecision = 'allow' | 'login' | 'deny'
@@ -55,7 +58,8 @@ export async function loadPublishedPresentation(
     ownerId: row.owner_id,
     revisionId: row.revision_id,
     document: parsePresentationDocument(row.document),
-    isPublic: row.is_public
+    isPublic: row.is_public,
+    canEdit: false
   }
 }
 
@@ -66,7 +70,7 @@ export async function requirePublishedPresentationAccess(
 ): Promise<PublishedPresentationContext> {
   const context = await loadPublishedPresentation(pool, token)
   let hasGrant = false
-  if (user && !context.isPublic && user.id !== context.ownerId) {
+  if (user && user.role !== 'owner' && user.id !== context.ownerId) {
     const grant = await pool.query(
       `SELECT 1 FROM cueport_presentation_access
        WHERE presentation_id = $1 AND user_id = $2`,
@@ -77,5 +81,12 @@ export async function requirePublishedPresentationAccess(
   const decision = presentationAccessDecision(context, user, hasGrant)
   if (decision === 'login') throw new ApiError(401, 'Sign in to open this presentation.')
   if (decision === 'deny') throw new ApiError(403, 'This presentation has not been shared with your account.')
-  return context
+  return {
+    ...context,
+    canEdit: Boolean(
+      user &&
+      canEditPresentations(user.role) &&
+      (user.role === 'owner' || user.id === context.ownerId || hasGrant)
+    )
+  }
 }
