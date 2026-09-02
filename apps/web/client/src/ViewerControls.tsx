@@ -30,6 +30,30 @@ interface ViewerControlsProps {
   onZoomReset: () => void
 }
 
+interface ViewerThumbnailPolicy {
+  fetchPriority: 'high' | 'low'
+  loading: 'eager' | 'lazy'
+}
+
+/**
+ * Prefer a real poster. Legacy stills may reuse only the active/adjacent full
+ * image because the renderer is already warming exactly those URLs.
+ */
+export function viewerThumbnailUrl(slide: SlideAsset, index: number, activeIndex: number): string | null {
+  if (slide.thumbnailUrl && slide.thumbnailUrl !== slide.url) return slide.thumbnailUrl
+  if (slide.mimeType !== 'video/mp4' && Math.abs(index - activeIndex) <= 1) return slide.url || null
+  return null
+}
+
+/** Warm the active screen and its neighbors; keep every distant preview lazy. */
+export function viewerThumbnailPolicy(index: number, activeIndex: number): ViewerThumbnailPolicy {
+  const distance = Math.abs(index - activeIndex)
+  return {
+    loading: distance <= 1 ? 'eager' : 'lazy',
+    fetchPriority: distance === 0 ? 'high' : 'low'
+  }
+}
+
 export function ViewerControls({
   activeSlideIndex,
   canEdit,
@@ -253,26 +277,39 @@ export function ViewerControls({
             }}
             ref={slideStripRef}
           >
-            {slides.map((slide, index) => (
-              <button
-                aria-current={index === activeSlideIndex ? 'page' : undefined}
-                aria-label={`Show screen ${index + 1}: ${slide.name}`}
-                className="web-viewer-slide-thumbnail"
-                data-active={index === activeSlideIndex}
-                key={slide.id}
-                onClick={() => onSlideSelect(index)}
-                title={`${index + 1}. ${slide.name}`}
-                type="button"
-              >
-                {slide.thumbnailUrl ? (
-                  <img alt="" decoding="async" draggable={false} loading="lazy" src={slide.thumbnailUrl} />
-                ) : (
-                  <span aria-hidden="true" className="web-viewer-slide-thumbnail-fallback">
-                    <Icon name={slide.mimeType === 'video/mp4' ? 'play' : 'image'} size={13} />
-                  </span>
-                )}
-              </button>
-            ))}
+            {slides.map((slide, index) => {
+              const thumbnailUrl = viewerThumbnailUrl(slide, index, activeSlideIndex)
+              const policy = viewerThumbnailPolicy(index, activeSlideIndex)
+              return (
+                <button
+                  aria-current={index === activeSlideIndex ? 'page' : undefined}
+                  aria-label={`Show screen ${index + 1}: ${slide.name}`}
+                  className="web-viewer-slide-thumbnail"
+                  data-active={index === activeSlideIndex}
+                  key={slide.id}
+                  onClick={() => onSlideSelect(index)}
+                  title={`${index + 1}. ${slide.name}`}
+                  type="button"
+                >
+                  {thumbnailUrl ? (
+                    <img
+                      alt=""
+                      decoding="async"
+                      draggable={false}
+                      fetchPriority={policy.fetchPriority}
+                      height={22}
+                      loading={policy.loading}
+                      src={thumbnailUrl}
+                      width={30}
+                    />
+                  ) : (
+                    <span aria-hidden="true" className="web-viewer-slide-thumbnail-fallback">
+                      <Icon name={slide.mimeType === 'video/mp4' ? 'play' : 'image'} size={13} />
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </nav>
         </div>
       </div>

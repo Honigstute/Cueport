@@ -26,6 +26,23 @@ interface FilmstripProps {
   sequenceTitles: SequenceTitleSettings
 }
 
+function FilmstripThumbnail({ asset, index }: { asset: SlideAsset | ReferenceAsset; index: number }): React.JSX.Element {
+  const hasPoster = Boolean(asset.thumbnailUrl && asset.thumbnailUrl !== asset.url)
+  return (
+    <span className="thumbnail-frame">
+      {hasPoster ? (
+        <img alt="" decoding="async" draggable={false} loading="lazy" src={asset.thumbnailUrl} />
+      ) : (
+        <span aria-hidden="true" className="thumbnail-frame-fallback">
+          <Icon name={asset.mimeType === 'video/mp4' ? 'play' : 'image'} size={20} />
+        </span>
+      )}
+      {hasPoster && asset.mimeType === 'video/mp4' && <span aria-hidden="true" className="thumbnail-video-badge"><Icon name="play" size={15} /></span>}
+      <span className="slide-number">{index + 1}</span>
+    </span>
+  )
+}
+
 export function Filmstrip({
   slides,
   references,
@@ -268,20 +285,12 @@ export function Filmstrip({
                 onClick={() => onSelect(asset.id)}
                 type="button"
               >
-                <span className="thumbnail-frame">
-                  <img alt="" draggable={false} loading="lazy" src={asset.thumbnailUrl} />
-                  {asset.mimeType === 'video/mp4' && <span aria-hidden="true" className="thumbnail-video-badge"><Icon name="play" size={15} /></span>}
-                  <span className="slide-number">{index + 1}</span>
-                </span>
+                <FilmstripThumbnail asset={asset} index={index} />
                 <span className="slide-details">
                   <span className="slide-name" title={asset.name}>{displayTitle}</span>
                 </span>
               </button> : <div aria-label={`Reference ${index + 1}: ${asset.name}`} className="slide-select reference-select">
-                <span className="thumbnail-frame">
-                  <img alt="" draggable={false} loading="lazy" src={asset.thumbnailUrl} />
-                  {asset.mimeType === 'video/mp4' && <span aria-hidden="true" className="thumbnail-video-badge"><Icon name="play" size={15} /></span>}
-                  <span className="slide-number">{index + 1}</span>
-                </span>
+                <FilmstripThumbnail asset={asset} index={index} />
                 <span className="slide-details">
                   <span className="slide-name" title={asset.name}>{displayTitle}</span>
                 </span>

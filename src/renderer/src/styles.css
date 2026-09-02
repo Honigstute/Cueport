@@ -1326,6 +1326,15 @@ html[data-platform="darwin"] .top-bar-content {
   width: 100%;
 }
 
+.thumbnail-frame-fallback {
+  align-items: center;
+  color: var(--ui-text-muted);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+}
+
 .thumbnail-video-badge {
   align-items: center;
   background: rgba(29, 29, 29, 0.82);

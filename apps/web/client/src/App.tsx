@@ -366,9 +366,10 @@ function SharedViewer({ token, onAuthenticationRequired }: {
         // The portable asset key is also the stable web-editor source identity.
         sourceKey: item.assetKey,
         url,
-        thumbnailUrl: item.posterKey
-          ? response.assets[item.posterKey] || ''
-          : item.mimeType.startsWith('image/') ? url : ''
+        // Never turn a multi-megabyte legacy artwork into a thumbnail request.
+        // The top bar may reuse the already-warmed active/adjacent still, while
+        // dense galleries wait for a real lightweight poster.
+        thumbnailUrl: item.posterKey ? response.assets[item.posterKey] || '' : ''
       }
     }
     dispatch({
@@ -640,6 +641,10 @@ function SharedViewer({ token, onAuthenticationRequired }: {
   if (error) return <main className="share-message"><Brand /><h1>Presentation unavailable</h1><p>{error}</p></main>
   if (!shared) return <main className="share-message"><Brand /><p>Loading presentation…</p></main>
   const canEdit = shared.access.canEdit && Boolean(shared.editor)
+  // Keep the presentation viewer lean: the two editor panels contain every
+  // sequence/reference thumbnail and should not request or decode them until
+  // an Editor explicitly opens Edit mode.
+  const editorPanelsMounted = canEdit && workspaceMode === 'edit'
   const editorIsVisible = canEdit && workspaceMode === 'edit' && isInterfaceVisible
 
   return (
@@ -700,22 +705,24 @@ function SharedViewer({ token, onAuthenticationRequired }: {
       />
       <div className="workspace">
         <div className="chrome-drawer chrome-drawer-left web-editor-drawer" aria-hidden={!editorIsVisible} inert={!editorIsVisible ? true : undefined}>
-          <Filmstrip
-            activeId={state.activeId}
-            activeTab={leftPanelTab}
-            onChooseMedia={() => mediaInputRef.current?.click()}
-            onChooseReferences={() => referenceInputRef.current?.click()}
-            onMove={(fromIndex, toIndex) => update({ type: 'MOVE_SLIDE', fromIndex, toIndex }, true)}
-            onMoveReference={(fromIndex, toIndex) => update({ type: 'MOVE_REFERENCE', fromIndex, toIndex }, true)}
-            onRemove={(id) => removeMedia(id, 'slides')}
-            onRemoveReference={(id) => removeMedia(id, 'references')}
-            onRename={async (id, name) => update({ type: 'RENAME_SLIDE', id, name }, true)}
-            onSelect={(id) => dispatch({ type: 'SELECT_SLIDE', id })}
-            onTabChange={setLeftPanelTab}
-            references={state.references}
-            sequenceTitles={state.sequenceTitles}
-            slides={state.slides}
-          />
+          {editorPanelsMounted && (
+            <Filmstrip
+              activeId={state.activeId}
+              activeTab={leftPanelTab}
+              onChooseMedia={() => mediaInputRef.current?.click()}
+              onChooseReferences={() => referenceInputRef.current?.click()}
+              onMove={(fromIndex, toIndex) => update({ type: 'MOVE_SLIDE', fromIndex, toIndex }, true)}
+              onMoveReference={(fromIndex, toIndex) => update({ type: 'MOVE_REFERENCE', fromIndex, toIndex }, true)}
+              onRemove={(id) => removeMedia(id, 'slides')}
+              onRemoveReference={(id) => removeMedia(id, 'references')}
+              onRename={async (id, name) => update({ type: 'RENAME_SLIDE', id, name }, true)}
+              onSelect={(id) => dispatch({ type: 'SELECT_SLIDE', id })}
+              onTabChange={setLeftPanelTab}
+              references={state.references}
+              sequenceTitles={state.sequenceTitles}
+              slides={state.slides}
+            />
+          )}
         </div>
         <Stage
           background={state.background}
@@ -753,41 +760,43 @@ function SharedViewer({ token, onAuthenticationRequired }: {
           ) : null}
         />
         <div className="chrome-drawer chrome-drawer-right web-editor-drawer" aria-hidden={!editorIsVisible} inert={!editorIsVisible ? true : undefined}>
-          <Inspector
-            background={state.background}
-            brand={state.brand}
-            canvasFrame={state.canvasFrame}
-            canvasImageGlow={state.canvasImageGlow}
-            canvasRoundedCorners={state.canvasRoundedCorners}
-            canvasStartAtTop={state.canvasStartAtTop}
-            onBackgroundChange={(background) => update({ type: 'SET_BACKGROUND', background }, true)}
-            onCanvasFrameChange={(frame) => {
-              if (frame !== 'phone') lastNonPhoneFrameRef.current = frame
-              update({ type: 'SET_CANVAS_FRAME', frame }, true)
-            }}
-            onCanvasImageGlowChange={(value) => update({ type: 'SET_CANVAS_IMAGE_GLOW', value }, true)}
-            onCanvasRoundedCornersChange={(value) => update({ type: 'SET_CANVAS_ROUNDED_CORNERS', value }, true)}
-            onCanvasStartAtTopChange={(value) => update({ type: 'SET_CANVAS_START_AT_TOP', value }, true)}
-            onLogoFile={(file) => void addLogo(file)}
-            onPatchBrand={(patch) => update({ type: 'PATCH_BRAND', patch }, true)}
-            onPhoneBrowserBarsChange={(patch) => update({ type: 'PATCH_PHONE_BROWSER_BARS', patch }, true)}
-            onProgramBarColorChange={(color) => update({ type: 'SET_PROGRAM_BAR_COLOR', color }, true)}
-            onReferenceImageShadowChange={(value) => update({ type: 'SET_REFERENCE_IMAGE_SHADOW', value }, true)}
-            onRemoveLogo={removeLogo}
-            onViewportCategoryChange={(category: ViewportCategory, viewport: ViewportSize) => {
-              update({ type: 'SET_VIEWPORT', viewport }, true)
-              update({
-                type: 'SET_CANVAS_FRAME',
-                frame: category === 'Mobile' ? 'phone' : lastNonPhoneFrameRef.current
-              }, true)
-            }}
-            onViewportChange={(viewport) => update({ type: 'SET_VIEWPORT', viewport }, true)}
-            phoneBrowserBars={state.phoneBrowserBars}
-            programBarColor={state.programBarColor}
-            referenceImageShadow={state.referenceImageShadow}
-            viewport={state.viewport}
-            viewportEnabled={state.viewportEnabled}
-          />
+          {editorPanelsMounted && (
+            <Inspector
+              background={state.background}
+              brand={state.brand}
+              canvasFrame={state.canvasFrame}
+              canvasImageGlow={state.canvasImageGlow}
+              canvasRoundedCorners={state.canvasRoundedCorners}
+              canvasStartAtTop={state.canvasStartAtTop}
+              onBackgroundChange={(background) => update({ type: 'SET_BACKGROUND', background }, true)}
+              onCanvasFrameChange={(frame) => {
+                if (frame !== 'phone') lastNonPhoneFrameRef.current = frame
+                update({ type: 'SET_CANVAS_FRAME', frame }, true)
+              }}
+              onCanvasImageGlowChange={(value) => update({ type: 'SET_CANVAS_IMAGE_GLOW', value }, true)}
+              onCanvasRoundedCornersChange={(value) => update({ type: 'SET_CANVAS_ROUNDED_CORNERS', value }, true)}
+              onCanvasStartAtTopChange={(value) => update({ type: 'SET_CANVAS_START_AT_TOP', value }, true)}
+              onLogoFile={(file) => void addLogo(file)}
+              onPatchBrand={(patch) => update({ type: 'PATCH_BRAND', patch }, true)}
+              onPhoneBrowserBarsChange={(patch) => update({ type: 'PATCH_PHONE_BROWSER_BARS', patch }, true)}
+              onProgramBarColorChange={(color) => update({ type: 'SET_PROGRAM_BAR_COLOR', color }, true)}
+              onReferenceImageShadowChange={(value) => update({ type: 'SET_REFERENCE_IMAGE_SHADOW', value }, true)}
+              onRemoveLogo={removeLogo}
+              onViewportCategoryChange={(category: ViewportCategory, viewport: ViewportSize) => {
+                update({ type: 'SET_VIEWPORT', viewport }, true)
+                update({
+                  type: 'SET_CANVAS_FRAME',
+                  frame: category === 'Mobile' ? 'phone' : lastNonPhoneFrameRef.current
+                }, true)
+              }}
+              onViewportChange={(viewport) => update({ type: 'SET_VIEWPORT', viewport }, true)}
+              phoneBrowserBars={state.phoneBrowserBars}
+              programBarColor={state.programBarColor}
+              referenceImageShadow={state.referenceImageShadow}
+              viewport={state.viewport}
+              viewportEnabled={state.viewportEnabled}
+            />
+          )}
         </div>
       </div>
       {editorMessage && (

@@ -49,6 +49,11 @@ import {
   type ReusablePublishedAsset
 } from './publicationReuse'
 import { createStorageUsageReader } from './storageUsage'
+import {
+  ifNoneMatchMatches,
+  publishedAssetCacheControl,
+  publishedAssetEtag
+} from './assetCaching'
 
 const MAX_ASSET_BYTES = 500 * 1024 * 1024
 const MAX_PUBLICATION_BYTES = 2 * 1024 * 1024 * 1024
@@ -881,8 +886,9 @@ async function start(): Promise<void> {
       revision_id: string
       mime_type: string
       storage_name: string
+      content_sha256: string | null
     }>(
-      `SELECT assets.revision_id, assets.mime_type, assets.storage_name
+      `SELECT assets.revision_id, assets.mime_type, assets.storage_name, assets.content_sha256
        FROM cueport_revision_assets assets
        WHERE assets.revision_id = $1 AND assets.id = $2 AND assets.uploaded_at IS NOT NULL`,
       [published.revisionId, assetId]
@@ -892,9 +898,14 @@ async function start(): Promise<void> {
     const filePath = storedAssetPath(config.storageRoot, asset.revision_id, asset.storage_name)
     const file = await stat(filePath)
     const range = request.headers.range
+    const etag = publishedAssetEtag(asset.content_sha256, file)
     reply.header('Accept-Ranges', 'bytes')
-    reply.header('Cache-Control', published.isPublic ? 'public, max-age=3600' : 'private, max-age=3600')
+    reply.header('Cache-Control', publishedAssetCacheControl(published.isPublic))
+    reply.header('ETag', etag)
     reply.type(asset.mime_type)
+    if (ifNoneMatchMatches(request.headers['if-none-match'], etag)) {
+      return reply.code(304).send()
+    }
     if (!range) {
       reply.header('Content-Length', file.size)
       return reply.send(openStoredAsset(filePath))

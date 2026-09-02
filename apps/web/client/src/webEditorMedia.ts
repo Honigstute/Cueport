@@ -18,7 +18,7 @@ function extensionForMimeType(mimeType: PresentationMediaMimeType | Presentation
   }
 }
 
-async function dataUrlBlob(value: string): Promise<Blob | null> {
+async function jpegDataUrlBlob(value: string): Promise<Blob | null> {
   if (!value.startsWith('data:image/jpeg')) return null
   return fetch(value).then((response) => response.blob())
 }
@@ -76,7 +76,9 @@ export async function importWebMedia(file: File, collection: 'slides' | 'referen
   const preparedFile = await optimizeLargePng(file)
   const asset = await createSlideAsset(preparedFile)
   const assetKey = `${collection}/${asset.id}.${extensionForMimeType(asset.mimeType)}`
-  const poster = asset.mimeType === 'video/mp4' ? await dataUrlBlob(asset.thumbnailUrl) : null
+  // Every web import gets the renderer's lightweight 320×200 JPEG poster.
+  // This is only a preview: transparent PNG source artwork remains PNG.
+  const poster = await jpegDataUrlBlob(asset.thumbnailUrl)
   const posterKey = poster ? `thumbnails/${asset.id}.jpg` : null
   return {
     asset: { ...asset, sourceKey: assetKey },

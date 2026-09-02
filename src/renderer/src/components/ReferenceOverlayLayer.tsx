@@ -434,17 +434,14 @@ function ReferencePickerMenu({ references, onChoose, onClose, x, y }: ReferenceP
   )
 }
 
-/**
- * Saved and published media may expose a generated poster or only the original
- * asset. Try each URL once so a missing poster never leaves an empty tile.
- */
+/** Dense pickers use only lightweight posters. Loading full legacy artwork in
+ * every tile can block the currently presented image; an icon is safer until
+ * the presentation is republished with generated posters. */
 function ReferencePickerThumbnail({ reference }: { reference: ReferenceAsset }): React.JSX.Element {
-  const candidates = [
-    reference.thumbnailUrl,
-    ...(reference.mimeType.startsWith('image/') ? [reference.url] : [])
-  ].filter((url, index, urls) => Boolean(url) && urls.indexOf(url) === index)
-  const [candidateIndex, setCandidateIndex] = useState(0)
-  const source = candidates[candidateIndex] ?? ''
+  const [failed, setFailed] = useState(false)
+  const source = !failed && reference.thumbnailUrl !== reference.url ? reference.thumbnailUrl : ''
+
+  useEffect(() => setFailed(false), [reference.thumbnailUrl])
 
   if (!source) {
     return <span aria-hidden="true" className="reference-picker-thumbnail-fallback"><Icon name="image" size={18} /></span>
@@ -456,7 +453,7 @@ function ReferencePickerThumbnail({ reference }: { reference: ReferenceAsset }):
       decoding="async"
       draggable={false}
       loading="lazy"
-      onError={() => setCandidateIndex((current) => current + 1)}
+      onError={() => setFailed(true)}
       src={source}
     />
   )

@@ -166,7 +166,9 @@ function ArtworkMedia({ slide, style }: { slide: SlideAsset; style?: React.CSSPr
         alt={slide.name}
         className="artwork-media"
         data-ready={isReady}
+        decoding="async"
         draggable={false}
+        fetchPriority="high"
         height={slide.height}
         key={mediaKey}
         onError={() => setFailedKey(mediaKey)}
@@ -481,7 +483,7 @@ export function Stage({
 
   const artwork = slide ? (
     <div className="artwork-content">
-      <ArtworkMedia slide={slide} style={artworkStyle} />
+      <ArtworkMedia key={`${slide.id}:${slide.url}`} slide={slide} style={artworkStyle} />
       {artworkOverlay}
     </div>
   ) : null
