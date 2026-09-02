@@ -1,39 +1,48 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
 import { formatZoom } from '../../../../src/renderer/src/lib/zoom'
-import type { DisplayMode } from '../../../../src/renderer/src/types'
+import type { DisplayMode, SlideAsset } from '../../../../src/renderer/src/types'
 
 interface ViewerControlsProps {
+  activeSlideIndex: number
+  canComment: boolean
   commentsEnabled: boolean
   downloadUrl: string
   isVisible: boolean
   mode: DisplayMode
+  slides: SlideAsset[]
   viewportEnabled: boolean
   viewportHeight: number
   viewportMarker: number | null
   zoom: number
   onCommentsToggle: () => void
   onModeChange: (mode: DisplayMode) => void
+  onSlideSelect: (index: number) => void
   onViewportToggle: () => void
   onViewportMarkerChange: (marker: number | null) => void
   onZoomReset: () => void
 }
 
 export function ViewerControls({
+  activeSlideIndex,
+  canComment,
   commentsEnabled,
   downloadUrl,
   isVisible,
   mode,
+  slides,
   viewportEnabled,
   viewportHeight,
   viewportMarker,
   zoom,
   onCommentsToggle,
   onModeChange,
+  onSlideSelect,
   onViewportToggle,
   onViewportMarkerChange,
   onZoomReset
 }: ViewerControlsProps): React.JSX.Element {
+  const slideStripRef = useRef<HTMLElement>(null)
   const [foldDraft, setFoldDraft] = useState(viewportMarker?.toString() ?? '')
   const foldIsInvalid = foldDraft !== '' && (
     Number(foldDraft) <= 0 || Number(foldDraft) >= viewportHeight
@@ -42,6 +51,17 @@ export function ViewerControls({
   useEffect(() => {
     setFoldDraft(viewportMarker?.toString() ?? '')
   }, [viewportMarker])
+
+  useEffect(() => {
+    const strip = slideStripRef.current
+    const active = strip?.children.item(activeSlideIndex)
+    if (!(strip && active instanceof HTMLElement)) return
+    if (active.offsetLeft < strip.scrollLeft) {
+      strip.scrollLeft = active.offsetLeft
+    } else if (active.offsetLeft + active.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollLeft = active.offsetLeft + active.offsetWidth - strip.clientWidth
+    }
+  }, [activeSlideIndex])
 
   const updateFold = (value: string): void => {
     const digits = value.replace(/\D/g, '').slice(0, 5)
@@ -67,20 +87,22 @@ export function ViewerControls({
             <Icon name="home" size={17} />
             <span className="sr-only">Back to presentations</span>
           </a>
-          <button
-            aria-label={commentsEnabled ? 'Hide comments' : 'Show comments'}
-            aria-pressed={commentsEnabled}
-            className="icon-button web-viewer-comments"
-            data-active={commentsEnabled}
-            onClick={onCommentsToggle}
-            title={`${commentsEnabled ? 'Hide' : 'Show'} comments · C`}
-            type="button"
-          >
-            <Icon name="comment" size={17} />
-          </button>
-          <a className="icon-button web-viewer-download" download href={downloadUrl} title="Download sequence">
+          {canComment && (
+            <button
+              aria-label={commentsEnabled ? 'Hide comments' : 'Show comments'}
+              aria-pressed={commentsEnabled}
+              className="icon-button web-viewer-comments"
+              data-active={commentsEnabled}
+              onClick={onCommentsToggle}
+              title={`${commentsEnabled ? 'Hide' : 'Show'} comments · C`}
+              type="button"
+            >
+              <Icon name="comment" size={17} />
+            </button>
+          )}
+          <a className="icon-button web-viewer-download" download href={downloadUrl} title="Download full presentation (.zip)">
             <Icon name="download" size={17} />
-            <span className="sr-only">Download sequence</span>
+            <span className="sr-only">Download full presentation</span>
           </a>
         </div>
 
@@ -158,7 +180,39 @@ export function ViewerControls({
           </div>
         </div>
 
-        <div aria-hidden="true" className="top-actions web-viewer-top-actions" />
+        <div className="top-actions web-viewer-top-actions">
+          <nav
+            aria-label="Presentation screens"
+            className="web-viewer-slide-strip"
+            onWheel={(event) => {
+              if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
+              event.preventDefault()
+              event.currentTarget.scrollLeft += event.deltaY
+            }}
+            ref={slideStripRef}
+          >
+            {slides.map((slide, index) => (
+              <button
+                aria-current={index === activeSlideIndex ? 'page' : undefined}
+                aria-label={`Show screen ${index + 1}: ${slide.name}`}
+                className="web-viewer-slide-thumbnail"
+                data-active={index === activeSlideIndex}
+                key={slide.id}
+                onClick={() => onSlideSelect(index)}
+                title={`${index + 1}. ${slide.name}`}
+                type="button"
+              >
+                {slide.thumbnailUrl ? (
+                  <img alt="" decoding="async" draggable={false} loading="lazy" src={slide.thumbnailUrl} />
+                ) : (
+                  <span aria-hidden="true" className="web-viewer-slide-thumbnail-fallback">
+                    <Icon name={slide.mimeType === 'video/mp4' ? 'play' : 'image'} size={13} />
+                  </span>
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
       </div>
     </header>
   )

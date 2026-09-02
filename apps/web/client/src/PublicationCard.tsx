@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
+import { PresentationAccessDialog } from './PresentationAccessDialog'
+import { formatBytes } from './formatBytes'
 
 export interface PublishedPresentation {
   id: string
   name: string
   updatedAt: string
-  revisionNumber: number | null
   slideCount: number
+  publishedBytes: number
+  canManage: boolean
+  isPublic: boolean
   shareUrl: string | null
   thumbnailUrl: string | null
 }
@@ -17,6 +21,7 @@ interface PublicationCardProps {
   presentation: PublishedPresentation
   onCopy: (presentation: PublishedPresentation) => void
   onDelete: (presentation: PublishedPresentation) => void
+  onAccessSaved: () => void
   onRename: (presentation: PublishedPresentation, name: string) => Promise<void>
   onTakeOffline: (presentation: PublishedPresentation) => void
 }
@@ -93,12 +98,15 @@ export function PublicationCard({
   presentation,
   onCopy,
   onDelete,
+  onAccessSaved,
   onRename,
   onTakeOffline
 }: PublicationCardProps): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
+  const [accessOpen, setAccessOpen] = useState(false)
+  const storageLabel = `Live ${formatBytes(presentation.publishedBytes)}`
 
   useEffect(() => {
     if (!menuOpen) return
@@ -131,10 +139,18 @@ export function PublicationCard({
         <div className="web-publication-summary">
           <div className="presentation-card-copy">
             <strong>{presentation.name}</strong>
-            <small>Revision {presentation.revisionNumber ?? '—'} · {presentation.slideCount} {presentation.slideCount === 1 ? 'screen' : 'screens'}</small>
-            <small>{formatPublishedDate(presentation.updatedAt)}</small>
+            <small>{presentation.slideCount} {presentation.slideCount === 1 ? 'screen' : 'screens'}</small>
+            <small>{presentation.canManage
+              ? presentation.shareUrl ? presentation.isPublic ? 'Public link' : 'Restricted link' : 'Link offline'
+              : 'Shared with you'} · {formatPublishedDate(presentation.updatedAt)}</small>
+            <small
+              className="web-publication-storage"
+              title="Only the current live presentation is stored here. Server backups are not included."
+            >
+              {storageLabel}
+            </small>
           </div>
-          <div className="web-publication-menu-wrap" ref={menuRef}>
+          {presentation.canManage && <div className="web-publication-menu-wrap" ref={menuRef}>
             <button
               aria-expanded={menuOpen}
               aria-label={`Actions for ${presentation.name}`}
@@ -147,6 +163,16 @@ export function PublicationCard({
             </button>
             {menuOpen && (
               <div className="presentation-card-menu" role="menu">
+                {presentation.shareUrl && (
+                  <button
+                    onClick={() => { setMenuOpen(false); setAccessOpen(true) }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Icon name="user" size={15} />
+                    <span>Manage access</span>
+                  </button>
+                )}
                 <button
                   onClick={() => { setMenuOpen(false); setRenameOpen(true) }}
                   role="menuitem"
@@ -176,11 +202,11 @@ export function PublicationCard({
                 </button>
               </div>
             )}
-          </div>
+          </div>}
         </div>
         {presentation.shareUrl && (
-          <button className="web-primary web-publication-copy" onClick={() => onCopy(presentation)} type="button">
-            {copied ? 'Copied' : 'Copy link'}
+          <button className="web-primary web-copy-feedback web-publication-copy" onClick={() => onCopy(presentation)} type="button">
+            <span aria-live="polite">{copied ? 'Link copied' : 'Copy link'}</span>
           </button>
         )}
       </div>
@@ -188,6 +214,13 @@ export function PublicationCard({
         <RenamePublicationDialog
           onClose={() => setRenameOpen(false)}
           onRename={(name) => onRename(presentation, name)}
+          presentation={presentation}
+        />
+      )}
+      {accessOpen && (
+        <PresentationAccessDialog
+          onClose={() => setAccessOpen(false)}
+          onSaved={onAccessSaved}
           presentation={presentation}
         />
       )}

@@ -7,9 +7,11 @@ import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import type { QueryResultRow } from 'pg'
+import { canEditPresentations } from '../../../src/shared/accounts'
 import { parsePresentationDocument, type PresentationDocument } from '../../../src/shared/presentation'
 import { createDatabase, runMigrations, type AuthenticatedUser, withTransaction } from './database'
 import { PUBLICATION_PREVIEW_ASSET_KEY } from '../../../src/shared/projects'
+import { isSha256 } from '../../../src/node/fileFingerprint'
 import {
   collectExpectedAssets,
   normalizePresentationName,
@@ -29,12 +31,24 @@ import {
   removeRevisionStorage,
   storageNameForAsset,
   storedAssetPath,
-  storeUpload
+  storeUpload,
+  UploadIntegrityError
 } from './storage'
 import { ApiError, jsonBody } from './http'
 import { publicProfile, registerAccountRoutes } from './accounts'
+import { requireAccountAdminRole, requireEditorRole, requirePresentationManager } from './authorization'
 import { registerDiscussionRoutes } from './discussions'
 import { registerDownloadRoutes } from './downloads'
+import { requirePublishedPresentationAccess } from './presentationAccess'
+import { registerPresentationSharingRoutes } from './presentationSharing'
+import {
+  backfillCurrentRevisionFingerprints,
+  findReusablePublishedAssets,
+  materializeReusableAsset,
+  type FingerprintedPublicationAsset,
+  type ReusablePublishedAsset
+} from './publicationReuse'
+import { createStorageUsageReader } from './storageUsage'
 
 const MAX_ASSET_BYTES = 500 * 1024 * 1024
 const MAX_PUBLICATION_BYTES = 2 * 1024 * 1024 * 1024
@@ -59,6 +73,7 @@ interface DraftAssetInput {
   key: string
   mimeType: string
   bytes: number
+  sha256?: string
 }
 
 interface DraftRequestBody {
@@ -76,8 +91,29 @@ interface AssetRow extends QueryResultRow {
   expected_bytes: string
   stored_bytes: string | null
   storage_name: string
+  content_sha256: string | null
   status: string
+  presentation_id: string
   owner_id: string
+}
+
+interface StorageTotalsRow extends QueryResultRow {
+  presentation_count: number
+  asset_count: number
+  stale_draft_count: number
+  stale_draft_bytes: string
+}
+
+async function removeRevisionDirectories(
+  storageRoot: string,
+  revisionIds: string[]
+): Promise<Array<{ revisionId: string; error: unknown }>> {
+  const results = await Promise.allSettled(
+    revisionIds.map((revisionId) => removeRevisionStorage(storageRoot, revisionId))
+  )
+  return results.flatMap((result, index) => result.status === 'rejected'
+    ? [{ revisionId: revisionIds[index], error: result.reason }]
+    : [])
 }
 
 function readConfig(): ServerConfig {
@@ -148,6 +184,7 @@ async function start(): Promise<void> {
   await mkdir(config.storageRoot, { recursive: true })
   const pool = createDatabase({ connectionString: config.databaseUrl, ownerEmail: config.ownerEmail })
   await runMigrations(pool, config.ownerEmail)
+  const readStorageUsage = createStorageUsageReader(config.storageRoot)
 
   const app = Fastify({
     logger: { level: config.production ? 'info' : 'debug' },
@@ -243,6 +280,14 @@ async function start(): Promise<void> {
     return user
   }
 
+  async function requireAccountAdmin(request: FastifyRequest): Promise<UserRow> {
+    return requireAccountAdminRole(await requireUser(request))
+  }
+
+  async function requireEditor(request: FastifyRequest): Promise<UserRow> {
+    return requireEditorRole(await requireUser(request))
+  }
+
   async function createSession(userId: string, reply: FastifyReply): Promise<void> {
     const token = createOpaqueToken()
     const expires = addDays(SESSION_DAYS)
@@ -267,6 +312,44 @@ async function start(): Promise<void> {
   app.get('/api/session', async (request) => {
     const user = await userFromRequest(request)
     return user ? { authenticated: true, user: publicProfile(user) } : { authenticated: false }
+  })
+
+  app.get('/api/server/storage', async (request) => {
+    const owner = await requireOwner(request)
+    const [usage, totals] = await Promise.all([
+      readStorageUsage(),
+      pool.query<StorageTotalsRow>(
+         `SELECT
+           COUNT(DISTINCT presentations.id)::int AS presentation_count,
+           COUNT(assets.id)::int AS asset_count,
+           COUNT(DISTINCT revisions.id) FILTER (
+             WHERE revisions.status = 'draft' AND revisions.created_at < now() - interval '24 hours'
+           )::int AS stale_draft_count,
+           COALESCE(SUM(assets.stored_bytes) FILTER (
+             WHERE revisions.status = 'draft' AND revisions.created_at < now() - interval '24 hours'
+           ), 0)::text AS stale_draft_bytes
+         FROM cueport_presentations presentations
+         LEFT JOIN cueport_revisions revisions ON revisions.presentation_id = presentations.id
+         LEFT JOIN cueport_revision_assets assets
+           ON assets.revision_id = revisions.id AND assets.uploaded_at IS NOT NULL
+         WHERE presentations.owner_id = $1`,
+        [owner.id]
+      )
+    ])
+    const row = totals.rows[0]
+    return {
+      measuredAt: usage.measuredAt,
+      server: usage.fileSystem,
+      cueport: {
+        contentBytes: usage.media.contentBytes,
+        allocatedBytes: usage.media.allocatedBytes,
+        physicalFileCount: usage.media.physicalFileCount,
+        presentationCount: row?.presentation_count ?? 0,
+        assetCount: row?.asset_count ?? 0,
+        staleDraftCount: row?.stale_draft_count ?? 0,
+        staleDraftBytes: Number(row?.stale_draft_bytes ?? 0)
+      }
+    }
   })
 
   app.post('/api/auth/setup', { config: { rateLimit: { max: 8, timeWindow: '15 minutes' } } }, async (request, reply) => {
@@ -323,7 +406,7 @@ async function start(): Promise<void> {
       [email]
     )
     const user = result.rows[0]
-    if (!user || user.role !== 'owner' || !(await verifyPassword(body.password, user.password_hash))) {
+    if (!user || !canEditPresentations(user.role) || !(await verifyPassword(body.password, user.password_hash))) {
       throw new ApiError(401, 'The email address or password is incorrect.')
     }
     const token = createOpaqueToken()
@@ -341,31 +424,42 @@ async function start(): Promise<void> {
     pool,
     publicUrl: config.publicUrl,
     requireUser,
-    requireOwner,
+    requireAccountAdmin,
     createSession
   })
   registerDiscussionRoutes({ app, pool, requireUser })
-  registerDownloadRoutes({ app, pool, storageRoot: config.storageRoot, requireUser })
+  registerDownloadRoutes({ app, pool, storageRoot: config.storageRoot, userFromRequest })
+  registerPresentationSharingRoutes({ app, pool, requireEditor })
 
   app.post('/api/publications/drafts', async (request) => {
-    const owner = await requireOwner(request)
+    const editor = await requireEditor(request)
     const body = request.body as DraftRequestBody
     const document = parsePresentationDocument(body?.document)
+    const existingManagement = await requirePresentationManager(pool, document.id, editor, { allowMissing: true })
+    const presentationOwnerId = existingManagement?.ownerId ?? editor.id
     if (document.brand?.mimeType === 'image/svg+xml') {
       throw new ApiError(400, 'Use a PNG, JPEG, or WebP client mark for web publishing. SVG remains available in the desktop app.')
     }
     if (!Array.isArray(body?.assets)) throw new ApiError(400, 'The publication has no asset list.')
     const includePreview = body.assets.some((asset) => asset?.key === PUBLICATION_PREVIEW_ASSET_KEY)
     const expected = collectExpectedAssets(document, includePreview)
-    const provided = new Map<string, DraftAssetInput>()
+    const provided = new Map<string, FingerprintedPublicationAsset>()
     let totalBytes = 0
     for (const asset of body.assets) {
       const bytes = Number(asset?.bytes)
       if (!asset || typeof asset.key !== 'string' || typeof asset.mimeType !== 'string' || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > MAX_ASSET_BYTES) {
         throw new ApiError(400, 'One of the publication assets is invalid or too large.')
       }
+      if (asset.sha256 != null && !isSha256(asset.sha256)) {
+        throw new ApiError(400, 'One of the publication asset fingerprints is invalid.')
+      }
       if (provided.has(asset.key)) throw new ApiError(400, 'The publication repeats an asset.')
-      provided.set(asset.key, { key: asset.key, mimeType: asset.mimeType, bytes })
+      provided.set(asset.key, {
+        key: asset.key,
+        mimeType: asset.mimeType,
+        bytes,
+        sha256: asset.sha256?.toLowerCase() ?? null
+      })
       totalBytes += bytes
     }
     if (totalBytes > MAX_PUBLICATION_BYTES) throw new ApiError(413, 'The publication is too large.')
@@ -373,17 +467,38 @@ async function start(): Promise<void> {
       throw new ApiError(400, 'The publication assets do not match its presentation document.')
     }
 
+    // Older installations have no fingerprints on their already-published
+    // files. Verify matching live assets from disk once before planning this
+    // draft so the first incremental publish can already skip unchanged data.
+    await backfillCurrentRevisionFingerprints(
+      pool,
+      config.storageRoot,
+      document.id,
+      presentationOwnerId,
+      [...provided.values()]
+    )
+
     const draft = await withTransaction(pool, async (client) => {
       const existing = await client.query<{ owner_id: string }>(
         'SELECT owner_id FROM cueport_presentations WHERE id = $1 FOR UPDATE',
         [document.id]
       )
-      if (existing.rows[0] && existing.rows[0].owner_id !== owner.id) throw new ApiError(403, 'This presentation belongs to another account.')
+      const lockedOwnerId = existing.rows[0]
+        ? (await requirePresentationManager(client, document.id, editor))!.ownerId
+        : editor.id
       await client.query(
         `INSERT INTO cueport_presentations (id, owner_id, name)
          VALUES ($1, $2, $3)
          ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = now()`,
-        [document.id, owner.id, document.name]
+        [document.id, lockedOwnerId, document.name]
+      )
+      // A presentation has exactly one live version and at most one in-flight
+      // replacement. Starting again invalidates an abandoned upload draft.
+      const discardedDrafts = await client.query<{ id: string }>(
+        `DELETE FROM cueport_revisions
+         WHERE presentation_id = $1 AND status = 'draft'
+         RETURNING id`,
+        [document.id]
       )
       const numberResult = await client.query<{ next: number }>(
         'SELECT COALESCE(MAX(revision_number), 0) + 1 AS next FROM cueport_revisions WHERE presentation_id = $1',
@@ -396,26 +511,64 @@ async function start(): Promise<void> {
          VALUES ($1, $2, $3, 'draft', $4::jsonb)`,
         [revisionId, document.id, revisionNumber, JSON.stringify(document)]
       )
-      const uploads: Array<{ id: string; key: string }> = []
+      const reusable = await findReusablePublishedAssets(client, lockedOwnerId, [...provided.values()])
+      const assets: Array<{
+        id: string
+        key: string
+        bytes: number
+        storageName: string
+        reuseSource: ReusablePublishedAsset | null
+      }> = []
       for (const asset of expected) {
         const input = provided.get(asset.key)!
         const id = randomUUID()
         const storageName = storageNameForAsset(id, asset.mimeType)
         await client.query(
           `INSERT INTO cueport_revision_assets
-             (id, revision_id, asset_key, mime_type, expected_bytes, storage_name)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [id, revisionId, asset.key, asset.mimeType, input.bytes, storageName]
+             (id, revision_id, asset_key, mime_type, expected_bytes, storage_name, content_sha256)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [id, revisionId, asset.key, asset.mimeType, input.bytes, storageName, input.sha256]
         )
-        uploads.push({ id, key: asset.key })
+        assets.push({
+          id,
+          key: asset.key,
+          bytes: input.bytes,
+          storageName,
+          reuseSource: reusable.get(asset.key) ?? null
+        })
       }
-      return { revisionId, revisionNumber, uploads }
+      return {
+        revisionId,
+        revisionNumber,
+        assets,
+        discardedDraftIds: discardedDrafts.rows.map((row) => row.id)
+      }
     })
+
+    const discardedDraftErrors = await removeRevisionDirectories(config.storageRoot, draft.discardedDraftIds)
+    for (const failure of discardedDraftErrors) {
+      request.log.warn(failure, 'An abandoned publication draft directory could not be removed.')
+    }
+
+    const reused = new Set<string>()
+    for (const asset of draft.assets) {
+      if (!asset.reuseSource) continue
+      if (await materializeReusableAsset({
+        pool,
+        storageRoot: config.storageRoot,
+        revisionId: draft.revisionId,
+        assetId: asset.id,
+        storageName: asset.storageName,
+        expectedBytes: asset.bytes,
+        source: asset.reuseSource
+      })) reused.add(asset.key)
+    }
 
     return {
       revisionId: draft.revisionId,
       revisionNumber: draft.revisionNumber,
-      uploads: draft.uploads.map((asset) => ({
+      reused: [...reused],
+      uploads: draft.assets.filter((asset) => !reused.has(asset.key)).map((asset) => ({
         key: asset.key,
         url: `/api/publications/revisions/${draft.revisionId}/assets/${asset.id}`
       }))
@@ -423,10 +576,10 @@ async function start(): Promise<void> {
   })
 
   app.put('/api/publications/revisions/:revisionId/assets/:assetId', { bodyLimit: MAX_ASSET_BYTES }, async (request) => {
-    const owner = await requireOwner(request)
+    const editor = await requireEditor(request)
     const { revisionId, assetId } = request.params as { revisionId: string; assetId: string }
     const result = await pool.query<AssetRow>(
-      `SELECT assets.*, revisions.status, presentations.owner_id
+      `SELECT assets.*, revisions.status, revisions.presentation_id, presentations.owner_id
        FROM cueport_revision_assets assets
        JOIN cueport_revisions revisions ON revisions.id = assets.revision_id
        JOIN cueport_presentations presentations ON presentations.id = revisions.presentation_id
@@ -434,22 +587,29 @@ async function start(): Promise<void> {
       [assetId, revisionId]
     )
     const asset = result.rows[0]
-    if (!asset || asset.owner_id !== owner.id) throw new ApiError(404, 'The upload target does not exist.')
+    if (!asset) throw new ApiError(404, 'The upload target does not exist.')
+    await requirePresentationManager(pool, asset.presentation_id, editor)
     if (asset.status !== 'draft') throw new ApiError(409, 'This revision is already published.')
     if (request.headers['content-type']?.split(';')[0] !== asset.mime_type) throw new ApiError(415, 'The upload type does not match the publication.')
     const expectedBytes = Number(asset.expected_bytes)
     if (Number(request.headers['content-length']) !== expectedBytes) throw new ApiError(400, 'The upload size does not match the publication.')
     const destination = storedAssetPath(config.storageRoot, revisionId, asset.storage_name)
-    const storedBytes = await storeUpload(request.body as Readable, destination, expectedBytes)
+    let stored: Awaited<ReturnType<typeof storeUpload>>
+    try {
+      stored = await storeUpload(request.body as Readable, destination, expectedBytes, asset.content_sha256)
+    } catch (error) {
+      if (error instanceof UploadIntegrityError) throw new ApiError(400, error.message)
+      throw error
+    }
     await pool.query(
-      'UPDATE cueport_revision_assets SET stored_bytes = $1, uploaded_at = now() WHERE id = $2',
-      [storedBytes, asset.id]
+      'UPDATE cueport_revision_assets SET stored_bytes = $1, content_sha256 = $2, uploaded_at = now() WHERE id = $3',
+      [stored.bytes, stored.sha256, asset.id]
     )
     return { success: true }
   })
 
   app.post('/api/publications/revisions/:revisionId/commit', async (request) => {
-    const owner = await requireOwner(request)
+    const editor = await requireEditor(request)
     const { revisionId } = request.params as { revisionId: string }
     const result = await withTransaction(pool, async (client) => {
       const revision = await client.query<{
@@ -467,17 +627,28 @@ async function start(): Promise<void> {
         [revisionId]
       )
       const row = revision.rows[0]
-      if (!row || row.owner_id !== owner.id) throw new ApiError(404, 'The publication draft does not exist.')
+      if (!row) throw new ApiError(404, 'The publication draft does not exist.')
+      await requirePresentationManager(client, row.presentation_id, editor)
       if (row.status !== 'draft') throw new ApiError(409, 'This revision is already published.')
       const missing = await client.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM cueport_revision_assets
-         WHERE revision_id = $1 AND (stored_bytes IS NULL OR stored_bytes <> expected_bytes)`,
+         WHERE revision_id = $1
+           AND (stored_bytes IS NULL OR stored_bytes <> expected_bytes OR content_sha256 IS NULL)`,
         [revisionId]
       )
       if (Number(missing.rows[0]?.count) > 0) throw new ApiError(409, 'Finish all asset uploads before publishing.')
 
       const token = row.share_token_cipher ? decryptToken(row.share_token_cipher, config.secret) : createOpaqueToken()
       const cipher = row.share_token_cipher ?? encryptToken(token, config.secret)
+      // Remove the old database version first inside the same transaction.
+      // Other readers continue to see it until commit, and a rollback restores
+      // it. This ordering also enforces one published row per presentation.
+      const obsolete = await client.query<{ id: string }>(
+        `DELETE FROM cueport_revisions
+         WHERE presentation_id = $1 AND id <> $2
+         RETURNING id`,
+        [row.presentation_id, revisionId]
+      )
       await client.query(
         `UPDATE cueport_revisions SET status = 'published', published_at = now() WHERE id = $1`,
         [revisionId]
@@ -488,28 +659,50 @@ async function start(): Promise<void> {
          WHERE id = $4`,
         [revisionId, hashToken(token), cipher, row.presentation_id]
       )
-      return { token, revisionNumber: row.revision_number }
+      return {
+        token,
+        revisionNumber: row.revision_number,
+        obsoleteRevisionIds: obsolete.rows.map((candidate) => candidate.id)
+      }
     })
+    const obsoleteErrors = await removeRevisionDirectories(config.storageRoot, result.obsoleteRevisionIds)
+    for (const failure of obsoleteErrors) {
+      request.log.warn(failure, 'An obsolete publication directory could not be removed.')
+    }
     return { shareUrl: `${config.publicUrl}/p/${result.token}`, revisionNumber: result.revisionNumber }
   })
 
   app.get('/api/presentations', async (request) => {
-    const owner = await requireOwner(request)
+    const user = await requireUser(request)
     const result = await pool.query<{
       id: string
+      owner_id: string
       name: string
       updated_at: Date
       share_token_cipher: string | null
+      is_public: boolean
+      has_grant: boolean
       revision_number: number | null
+      published_bytes: string
       document: PresentationDocument | null
     }>(
-      `SELECT presentations.id, presentations.name, presentations.updated_at,
-              presentations.share_token_cipher, revisions.revision_number, revisions.document
+      `SELECT presentations.id, presentations.owner_id, presentations.name, presentations.updated_at,
+              presentations.share_token_cipher, presentations.is_public,
+              access.user_id IS NOT NULL AS has_grant,
+              revisions.revision_number, revisions.document,
+              (SELECT COALESCE(SUM(current_assets.stored_bytes), 0)::text
+               FROM cueport_revision_assets current_assets
+               WHERE current_assets.revision_id = presentations.published_revision_id
+                 AND current_assets.uploaded_at IS NOT NULL) AS published_bytes
        FROM cueport_presentations presentations
        LEFT JOIN cueport_revisions revisions ON revisions.id = presentations.published_revision_id
-       WHERE presentations.owner_id = $1
+       LEFT JOIN cueport_presentation_access access
+         ON access.presentation_id = presentations.id AND access.user_id = $1
+       WHERE $2::boolean
+          OR presentations.owner_id = $1
+          OR (access.user_id = $1 AND ($3::boolean OR presentations.share_token_hash IS NOT NULL))
        ORDER BY presentations.updated_at DESC`,
-      [owner.id]
+      [user.id, user.role === 'owner', canEditPresentations(user.role)]
     )
     return {
       presentations: result.rows.map((row) => {
@@ -518,8 +711,12 @@ async function start(): Promise<void> {
           id: row.id,
           name: row.name,
           updatedAt: row.updated_at.toISOString(),
-          revisionNumber: row.revision_number,
           slideCount: document?.slides.length ?? 0,
+          canManage: canEditPresentations(user.role) && (
+            user.role === 'owner' || row.owner_id === user.id || row.has_grant
+          ),
+          isPublic: row.is_public,
+          publishedBytes: Number(row.published_bytes),
           shareUrl: shareUrl(config, row.share_token_cipher),
           thumbnailUrl: document && preferredDashboardThumbnailKeys(document).length > 0
             ? `/api/presentations/${row.id}/thumbnail?v=${row.revision_number ?? 0}`
@@ -530,14 +727,21 @@ async function start(): Promise<void> {
   })
 
   app.get('/api/presentations/:presentationId/thumbnail', async (request, reply) => {
-    const owner = await requireOwner(request)
+    const user = await requireUser(request)
     const { presentationId } = request.params as { presentationId: string }
     const published = await pool.query<{ revision_id: string; document: unknown }>(
       `SELECT revisions.id AS revision_id, revisions.document
        FROM cueport_presentations presentations
        JOIN cueport_revisions revisions ON revisions.id = presentations.published_revision_id
-       WHERE presentations.id = $1 AND presentations.owner_id = $2`,
-      [presentationId, owner.id]
+       LEFT JOIN cueport_presentation_access access
+         ON access.presentation_id = presentations.id AND access.user_id = $2
+       WHERE presentations.id = $1
+         AND (
+           $3::boolean
+           OR presentations.owner_id = $2
+           OR (access.user_id = $2 AND ($4::boolean OR presentations.share_token_hash IS NOT NULL))
+         )`,
+      [presentationId, user.id, user.role === 'owner', canEditPresentations(user.role)]
     )
     const row = published.rows[0]
     if (!row) throw new ApiError(404, 'The presentation thumbnail is unavailable.')
@@ -566,8 +770,9 @@ async function start(): Promise<void> {
   })
 
   app.patch('/api/presentations/:presentationId', async (request) => {
-    const owner = await requireOwner(request)
+    const editor = await requireEditor(request)
     const { presentationId } = request.params as { presentationId: string }
+    await requirePresentationManager(pool, presentationId, editor)
     let name: string
     try {
       name = normalizePresentationName(jsonBody(request.body).name)
@@ -576,64 +781,58 @@ async function start(): Promise<void> {
     }
     const result = await pool.query(
       `UPDATE cueport_presentations SET name = $1, updated_at = now()
-       WHERE id = $2 AND owner_id = $3`,
-      [name, presentationId, owner.id]
+       WHERE id = $2`,
+      [name, presentationId]
     )
     if (!result.rowCount) throw new ApiError(404, 'The presentation does not exist.')
     return { success: true, name }
   })
 
   app.post('/api/presentations/:presentationId/revoke', async (request) => {
-    const owner = await requireOwner(request)
+    const editor = await requireEditor(request)
     const { presentationId } = request.params as { presentationId: string }
+    await requirePresentationManager(pool, presentationId, editor)
     const result = await pool.query(
       `UPDATE cueport_presentations
        SET share_token_hash = NULL, share_token_cipher = NULL, updated_at = now()
-       WHERE id = $1 AND owner_id = $2`,
-      [presentationId, owner.id]
+       WHERE id = $1`,
+      [presentationId]
     )
     if (!result.rowCount) throw new ApiError(404, 'The presentation does not exist.')
     return { success: true }
   })
 
   app.delete('/api/presentations/:presentationId', async (request) => {
-    const owner = await requireOwner(request)
+    const editor = await requireEditor(request)
     const { presentationId } = request.params as { presentationId: string }
+    await requirePresentationManager(pool, presentationId, editor)
     const revisions = await pool.query<{ id: string }>(
       `SELECT revisions.id FROM cueport_revisions revisions
        JOIN cueport_presentations presentations ON presentations.id = revisions.presentation_id
-       WHERE presentations.id = $1 AND presentations.owner_id = $2`,
-      [presentationId, owner.id]
+       WHERE presentations.id = $1`,
+      [presentationId]
     )
-    const result = await pool.query('DELETE FROM cueport_presentations WHERE id = $1 AND owner_id = $2', [presentationId, owner.id])
+    const result = await pool.query('DELETE FROM cueport_presentations WHERE id = $1', [presentationId])
     if (!result.rowCount) throw new ApiError(404, 'The presentation does not exist.')
     await Promise.all(revisions.rows.map((revision) => removeRevisionStorage(config.storageRoot, revision.id)))
     return { success: true }
   })
 
   app.get('/api/share/:token', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (request) => {
-    await requireUser(request)
     const { token } = request.params as { token: string }
-    if (token.length < 32 || token.length > 128) throw new ApiError(404, 'This presentation link is unavailable.')
-    const result = await pool.query<{
-      revision_id: string
-      document: unknown
-    }>(
-      `SELECT revisions.id AS revision_id, revisions.document
-       FROM cueport_presentations presentations
-       JOIN cueport_revisions revisions ON revisions.id = presentations.published_revision_id
-       WHERE presentations.share_token_hash = $1 AND revisions.status = 'published'`,
-      [hashToken(token)]
-    )
-    const published = result.rows[0]
-    if (!published) throw new ApiError(404, 'This presentation link is unavailable.')
-    const document = parsePresentationDocument(published.document)
+    const user = await userFromRequest(request)
+    const published = await requirePublishedPresentationAccess(pool, token, user)
     const assets = await pool.query<{ id: string; asset_key: string }>(
       'SELECT id, asset_key FROM cueport_revision_assets WHERE revision_id = $1',
-      [published.revision_id]
+      [published.revisionId]
     )
     return {
-      document,
+      document: published.document,
+      access: {
+        isPublic: published.isPublic,
+        authenticated: Boolean(user),
+        canComment: Boolean(user)
+      },
       assets: Object.fromEntries(assets.rows.map((asset) => [
         asset.asset_key,
         `/api/share/${encodeURIComponent(token)}/assets/${asset.id}`
@@ -642,19 +841,18 @@ async function start(): Promise<void> {
   })
 
   app.get('/api/share/:token/assets/:assetId', { config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, async (request, reply) => {
-    await requireUser(request)
     const { token, assetId } = request.params as { token: string; assetId: string }
+    const user = await userFromRequest(request)
+    const published = await requirePublishedPresentationAccess(pool, token, user)
     const result = await pool.query<{
       revision_id: string
       mime_type: string
       storage_name: string
     }>(
       `SELECT assets.revision_id, assets.mime_type, assets.storage_name
-       FROM cueport_presentations presentations
-       JOIN cueport_revisions revisions ON revisions.id = presentations.published_revision_id
-       JOIN cueport_revision_assets assets ON assets.revision_id = revisions.id
-       WHERE presentations.share_token_hash = $1 AND assets.id = $2 AND assets.uploaded_at IS NOT NULL`,
-      [hashToken(token), assetId]
+       FROM cueport_revision_assets assets
+       WHERE assets.revision_id = $1 AND assets.id = $2 AND assets.uploaded_at IS NOT NULL`,
+      [published.revisionId, assetId]
     )
     const asset = result.rows[0]
     if (!asset) throw new ApiError(404, 'The presentation asset is unavailable.')
@@ -662,7 +860,7 @@ async function start(): Promise<void> {
     const file = await stat(filePath)
     const range = request.headers.range
     reply.header('Accept-Ranges', 'bytes')
-    reply.header('Cache-Control', 'private, max-age=3600')
+    reply.header('Cache-Control', published.isPublic ? 'public, max-age=3600' : 'private, max-age=3600')
     reply.type(asset.mime_type)
     if (!range) {
       reply.header('Content-Length', file.size)

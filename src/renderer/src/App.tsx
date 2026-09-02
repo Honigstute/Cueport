@@ -8,6 +8,7 @@ import { HomeScreen } from './components/HomeScreen'
 import { Inspector } from './components/Inspector'
 import { PresentationNameDialog } from './components/PresentationNameDialog'
 import { PublishDialog } from './components/PublishDialog'
+import { PublishingAccountDialog } from './components/PublishingAccountDialog'
 import { Stage } from './components/Stage'
 import { Toast } from './components/Toast'
 import { TopBar } from './components/TopBar'
@@ -25,7 +26,8 @@ import {
 } from './state/presentationReducer'
 import type { CanvasFrame, ChromeMode, DisplayMode, LogoPosition, ReferenceAsset, SlideAsset, ToastMessage, ViewportCategory, ViewportSize } from './types'
 import type { SlideNavigationDirection } from './hooks/useClickDragScroll'
-import type { SavedPresentationSummary } from '../../shared/projects'
+import { useAdjacentMediaPreload } from './hooks/useAdjacentMediaPreload'
+import type { PublishingStatus, SavedPresentationSummary } from '../../shared/projects'
 
 const SETTINGS_KEY = 'cueport:presentation-settings:v3'
 const VERSION_TWO_SETTINGS_KEY = 'cueport:presentation-settings:v2'
@@ -80,6 +82,8 @@ export default function App(): React.JSX.Element {
   const [savedPresentation, setSavedPresentation] = useState<Pick<SavedPresentationSummary, 'id' | 'name'> | null>(null)
   const [presentationNameRequest, setPresentationNameRequest] = useState<PresentationNameRequest | null>(null)
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false)
+  const [isPublishingAccountOpen, setIsPublishingAccountOpen] = useState(false)
+  const [publishingStatus, setPublishingStatus] = useState<PublishingStatus | null>(null)
   const [savedProjectSnapshot, setSavedProjectSnapshot] = useState<string | null>(null)
   const [isUnsavedPromptOpen, setIsUnsavedPromptOpen] = useState(false)
   const [isSavingOnExit, setIsSavingOnExit] = useState(false)
@@ -107,6 +111,7 @@ export default function App(): React.JSX.Element {
 
   const activeIndex = state.slides.findIndex((slide) => slide.id === state.activeId)
   const activeSlide = activeIndex >= 0 ? state.slides[activeIndex] : null
+  useAdjacentMediaPreload(state.slides, activeIndex)
   const displayResolution = activeSlide
     ? calculateDisplayResolution({
         sourceWidth: activeSlide.width,
@@ -149,6 +154,12 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     void refreshSavedPresentations()
   }, [refreshSavedPresentations])
+
+  useEffect(() => {
+    window.cueport?.getPublishingStatus()
+      .then(setPublishingStatus)
+      .catch(() => setPublishingStatus(null))
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(toStoredSettings(state)))
@@ -815,12 +826,14 @@ export default function App(): React.JSX.Element {
         mode={state.mode}
         onGoHome={requestReturnToPresentationHome}
         onModeChange={changeDisplayMode}
+        onPublishingAccount={() => setIsPublishingAccountOpen(true)}
         onPublish={() => setIsPublishDialogOpen(true)}
         onSequenceTitlesChange={(patch) => dispatch({ type: 'PATCH_SEQUENCE_TITLES', patch })}
         onToggleChrome={toggleAllInterface}
         onViewportToggle={toggleViewport}
         onViewportMarkerChange={(marker) => dispatch({ type: 'SET_VIEWPORT_MARKER', marker })}
         onZoomReset={resetCanvasZoom}
+        publishingStatus={publishingStatus}
         sequenceTitles={state.sequenceTitles}
         viewport={state.viewport}
         viewportEnabled={state.viewportEnabled}
@@ -977,6 +990,7 @@ export default function App(): React.JSX.Element {
           isDirty={isPresentationDirty}
           isSaved={savedPresentation !== null}
           onClose={() => setIsPublishDialogOpen(false)}
+          onStatusChange={setPublishingStatus}
           onPublish={async () => {
             if (!window.cueport || !savedPresentation) throw new Error('Save this presentation before publishing it.')
             // Always refresh portable thumbnails before publishing. This also
@@ -985,6 +999,13 @@ export default function App(): React.JSX.Element {
             return window.cueport.publishPresentation(savedPresentation.id)
           }}
           presentationName={savedPresentation?.name ?? 'Unsaved presentation'}
+        />
+      )}
+      {isPublishingAccountOpen && (
+        <PublishingAccountDialog
+          initialStatus={publishingStatus}
+          onClose={() => setIsPublishingAccountOpen(false)}
+          onStatusChange={setPublishingStatus}
         />
       )}
       {toast && <Toast onDismiss={() => setToast(null)} toast={toast} />}

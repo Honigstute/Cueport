@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { Pool, PoolClient, QueryResultRow } from 'pg'
+import { isAssignableAccountRole, type AssignableAccountRole } from '../../../src/shared/accounts'
 import type { AuthenticatedUser } from './database'
 import { decodeAvatarDataUrl, normalizeDisplayName, normalizeProfileTitle } from './accountValidation'
 import { ApiError, jsonBody } from './http'
@@ -30,7 +31,7 @@ interface AccountRoutesOptions {
   pool: Pool
   publicUrl: string
   requireUser: (request: FastifyRequest) => Promise<AuthenticatedUser>
-  requireOwner: (request: FastifyRequest) => Promise<AuthenticatedUser>
+  requireAccountAdmin: (request: FastifyRequest) => Promise<AuthenticatedUser>
   createSession: (userId: string, reply: FastifyReply) => Promise<void>
 }
 
@@ -113,12 +114,18 @@ function isUniqueViolation(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === '23505')
 }
 
+function requestedAccountRole(value: unknown, fallback: AssignableAccountRole = 'viewer'): AssignableAccountRole {
+  if (value === undefined) return fallback
+  if (!isAssignableAccountRole(value)) throw new ApiError(400, 'Choose Viewer, Editor, or Admin.')
+  return value
+}
+
 export function registerAccountRoutes({
   app,
   pool,
   publicUrl,
   requireUser,
-  requireOwner,
+  requireAccountAdmin,
   createSession
 }: AccountRoutesOptions): void {
   app.get('/api/auth/invite/:token', async (request) => {
@@ -198,7 +205,7 @@ export function registerAccountRoutes({
   })
 
   app.get('/api/accounts', async (request) => {
-    await requireOwner(request)
+    await requireAccountAdmin(request)
     const result = await pool.query<AccountRow>(
       `SELECT id, email, password_hash, role, display_name, title, avatar_mime_type,
               avatar_updated_at, is_protected, created_at, deleted_at
@@ -209,7 +216,7 @@ export function registerAccountRoutes({
   })
 
   app.post('/api/accounts', async (request) => {
-    const owner = await requireOwner(request)
+    const accountAdmin = await requireAccountAdmin(request)
     const body = jsonBody(request.body)
     let email: string
     let displayName: string
@@ -221,6 +228,7 @@ export function registerAccountRoutes({
     } catch (error) {
       throw new ApiError(400, error instanceof Error ? error.message : 'Enter valid account details.')
     }
+    const role = requestedAccountRole(body.role)
     const avatar = validAvatar(body.avatarDataUrl)
     const userId = randomUUID()
     const client = await pool.connect()
@@ -230,10 +238,10 @@ export function registerAccountRoutes({
       await client.query(
         `INSERT INTO cueport_users
            (id, email, role, display_name, title, avatar_mime_type, avatar_data, avatar_updated_at)
-         VALUES ($1, $2, 'member', $3, $4, $5, $6, CASE WHEN $6::bytea IS NULL THEN NULL ELSE now() END)`,
-        [userId, email, displayName, title, avatar?.mimeType ?? null, avatar?.data ?? null]
+         VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7::bytea IS NULL THEN NULL ELSE now() END)`,
+        [userId, email, role, displayName, title, avatar?.mimeType ?? null, avatar?.data ?? null]
       )
-      setupUrl = await createPasswordLink(client, publicUrl, userId, owner.id)
+      setupUrl = await createPasswordLink(client, publicUrl, userId, accountAdmin.id)
       await client.query('COMMIT')
     } catch (error) {
       await client.query('ROLLBACK')
@@ -246,9 +254,12 @@ export function registerAccountRoutes({
   })
 
   app.patch('/api/accounts/:userId', async (request) => {
-    await requireOwner(request)
+    const accountAdmin = await requireAccountAdmin(request)
     const { userId } = request.params as { userId: string }
     const existing = await loadAccount(pool, userId)
+    if (existing.is_protected || existing.role === 'owner') {
+      throw new ApiError(403, 'The Cueport owner account is managed from its own profile.')
+    }
     const body = jsonBody(request.body)
     let email = existing.email
     let displayName: string
@@ -260,6 +271,10 @@ export function registerAccountRoutes({
     } catch (error) {
       throw new ApiError(400, error instanceof Error ? error.message : 'Enter valid account details.')
     }
+    const role = requestedAccountRole(body.role, existing.role as AssignableAccountRole)
+    if (accountAdmin.id === existing.id && role !== existing.role) {
+      throw new ApiError(400, 'Another Admin or the Owner must change your role.')
+    }
     const avatar = body.avatarDataUrl === undefined ? undefined : validAvatar(body.avatarDataUrl)
     try {
       await pool.query(
@@ -270,9 +285,10 @@ export function registerAccountRoutes({
            avatar_mime_type = CASE WHEN $4::boolean THEN $5 ELSE avatar_mime_type END,
            avatar_data = CASE WHEN $4::boolean THEN $6 ELSE avatar_data END,
            avatar_updated_at = CASE WHEN $4::boolean THEN CASE WHEN $6::bytea IS NULL THEN NULL ELSE now() END ELSE avatar_updated_at END,
+           role = $7,
            updated_at = now()
-         WHERE id = $7 AND deleted_at IS NULL`,
-        [email, displayName, title, avatar !== undefined, avatar?.mimeType ?? null, avatar?.data ?? null, userId]
+         WHERE id = $8 AND deleted_at IS NULL`,
+        [email, displayName, title, avatar !== undefined, avatar?.mimeType ?? null, avatar?.data ?? null, role, userId]
       )
     } catch (error) {
       if (isUniqueViolation(error)) throw new ApiError(409, 'An account with this email address already exists.')
@@ -282,7 +298,7 @@ export function registerAccountRoutes({
   })
 
   const issuePasswordLink = async (request: FastifyRequest): Promise<string> => {
-    const owner = await requireOwner(request)
+    const accountAdmin = await requireAccountAdmin(request)
     const { userId } = request.params as { userId: string }
     const account = await loadAccount(pool, userId)
     if (account.is_protected) throw new ApiError(400, 'Change the owner password from the profile menu.')
@@ -292,7 +308,7 @@ export function registerAccountRoutes({
       // The account row is the serialization point: two simultaneous requests
       // can never leave two usable password links behind.
       await client.query('SELECT id FROM cueport_users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [userId])
-      const passwordUrl = await createPasswordLink(client, publicUrl, userId, owner.id)
+      const passwordUrl = await createPasswordLink(client, publicUrl, userId, accountAdmin.id)
       await client.query('COMMIT')
       return passwordUrl
     } catch (error) {
@@ -313,10 +329,10 @@ export function registerAccountRoutes({
   })
 
   app.delete('/api/accounts/:userId', async (request) => {
-    const owner = await requireOwner(request)
+    const accountAdmin = await requireAccountAdmin(request)
     const { userId } = request.params as { userId: string }
     const account = await loadAccount(pool, userId)
-    if (account.is_protected || account.role === 'owner' || account.id === owner.id) {
+    if (account.is_protected || account.role === 'owner' || account.id === accountAdmin.id) {
       throw new ApiError(403, 'The Cueport owner account cannot be deleted.')
     }
     const client = await pool.connect()

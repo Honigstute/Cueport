@@ -1,5 +1,10 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { CueportHost, DesktopPlatform } from '../shared/projects'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import {
+  PUBLISHING_PROGRESS_CHANNEL,
+  type CueportHost,
+  type DesktopPlatform,
+  type PublishingProgress
+} from '../shared/projects'
 
 type DesktopHost = CueportHost<Parameters<typeof webUtils.getPathForFile>[0]>
 
@@ -24,5 +29,10 @@ contextBridge.exposeInMainWorld('cueport', {
   getPublishingStatus: () => ipcRenderer.invoke('publishing:status'),
   signInToPublishing: (request) => ipcRenderer.invoke('publishing:sign-in', request),
   signOutOfPublishing: () => ipcRenderer.invoke('publishing:sign-out'),
-  publishPresentation: (id) => ipcRenderer.invoke('publishing:publish', id)
+  publishPresentation: (id) => ipcRenderer.invoke('publishing:publish', id),
+  onPublishingProgress: (listener) => {
+    const handleProgress = (_event: IpcRendererEvent, progress: PublishingProgress): void => listener(progress)
+    ipcRenderer.on(PUBLISHING_PROGRESS_CHANNEL, handleProgress)
+    return () => ipcRenderer.removeListener(PUBLISHING_PROGRESS_CHANNEL, handleProgress)
+  }
 } satisfies DesktopHost)

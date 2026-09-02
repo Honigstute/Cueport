@@ -52,10 +52,29 @@ describe('sequence presentation downloads', () => {
     await writeFile(storedAssetPath(storageRoot, revisionId, videoStorageName), 'video bytes')
 
     let requestedAssetKeys: string[] = []
+    const user: AuthenticatedUser = {
+      id: '88888888-8888-4888-8888-888888888888',
+      email: 'viewer@example.com',
+      password_hash: 'unused',
+      role: 'viewer',
+      display_name: 'Viewer',
+      title: '',
+      avatar_mime_type: null,
+      avatar_updated_at: null,
+      is_protected: false
+    }
     const pool = {
       query: async (sql: string, values?: unknown[]) => {
         if (sql.includes('cueport_presentations')) {
-          return { rows: [{ revision_id: revisionId, document }] }
+          return {
+            rows: [{
+              presentation_id: document.id,
+              owner_id: user.id,
+              revision_id: revisionId,
+              document,
+              is_public: true
+            }]
+          }
         }
         requestedAssetKeys = values?.[1] as string[] ?? []
         return {
@@ -66,19 +85,8 @@ describe('sequence presentation downloads', () => {
         }
       }
     } as unknown as Pool
-    const user: AuthenticatedUser = {
-      id: '88888888-8888-4888-8888-888888888888',
-      email: 'viewer@example.com',
-      password_hash: 'unused',
-      role: 'member',
-      display_name: 'Viewer',
-      title: '',
-      avatar_mime_type: null,
-      avatar_updated_at: null,
-      is_protected: false
-    }
     const app = Fastify()
-    registerDownloadRoutes({ app, pool, storageRoot, requireUser: async () => user })
+    registerDownloadRoutes({ app, pool, storageRoot, userFromRequest: async () => user })
 
     try {
       const response = await app.inject({ method: 'GET', url: `/api/share/${'a'.repeat(32)}/download` })

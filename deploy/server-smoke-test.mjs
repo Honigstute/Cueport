@@ -127,10 +127,24 @@ try {
     const createdAccount = await json(await fetch(`${baseUrl}/api/accounts`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, displayName: 'Smoke Reviewer', title: 'Client review' })
+      body: JSON.stringify({ email, displayName: 'Smoke Reviewer', role: 'viewer', title: 'Client review' })
     }))
     temporaryAccountId = createdAccount.account.id
     assert.equal(createdAccount.account.protected, false)
+    assert.equal(createdAccount.account.role, 'viewer')
+
+    const attemptedOwnerCreation = await fetch(`${baseUrl}/api/accounts`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: `owner-${email}`, displayName: 'Invalid Owner', role: 'owner', title: '' })
+    })
+    assert.equal(attemptedOwnerCreation.status, 400)
+
+    await json(await fetch(`${baseUrl}/api/presentations/${presentationId}/access`, {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isPublic: false, accountIds: [createdAccount.account.id] })
+    }))
 
     const ownerDelete = await fetch(`${baseUrl}/api/accounts/${ownerSession.user.id}`, { method: 'DELETE', headers })
     assert.equal(ownerDelete.status, 403)
@@ -144,7 +158,7 @@ try {
       body: JSON.stringify({ token: activationToken, password: initialPassword })
     })
     const activated = await json(activation)
-    assert.equal(activated.user.role, 'member')
+    assert.equal(activated.user.role, 'viewer')
     const memberCookie = activation.headers.get('set-cookie')?.split(';')[0]
     assert.ok(memberCookie)
     let memberHeaders = { Cookie: memberCookie, Origin: publicUrl }
@@ -189,6 +203,33 @@ try {
     assert.equal(staleResetSession.authenticated, false)
     memberHeaders = { Cookie: changedCookie, Origin: publicUrl }
 
+    const forbiddenViewerManagement = await fetch(`${baseUrl}/api/presentations/${presentationId}/access`, {
+      headers: memberHeaders
+    })
+    assert.equal(forbiddenViewerManagement.status, 403)
+    const forbiddenViewerDraft = await fetch(`${baseUrl}/api/publications/drafts`, {
+      method: 'POST',
+      headers: { ...memberHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document, assets: [] })
+    })
+    assert.equal(forbiddenViewerDraft.status, 403)
+
+    await json(await fetch(`${baseUrl}/api/accounts/${createdAccount.account.id}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'editor' })
+    }))
+    const editorAccess = await json(await fetch(`${baseUrl}/api/presentations/${presentationId}/access`, {
+      headers: memberHeaders
+    }))
+    assert.equal(editorAccess.isPublic, false)
+    const desktopEditorLogin = await json(await fetch(`${baseUrl}/api/desktop/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: changedPassword })
+    }))
+    assert.ok(desktopEditorLogin.token)
+
     const ownerOnlyThread = await json(await fetch(discussionBase, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
@@ -227,6 +268,16 @@ try {
     }))
     const forbiddenThreadDelete = await fetch(`${discussionBase}/${memberThread.threadId}`, { method: 'DELETE', headers: memberHeaders })
     assert.equal(forbiddenThreadDelete.status, 403)
+
+    await json(await fetch(`${baseUrl}/api/accounts/${createdAccount.account.id}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'admin' })
+    }))
+    const adminAccounts = await json(await fetch(`${baseUrl}/api/accounts`, { headers: memberHeaders }))
+    assert.equal(adminAccounts.accounts.some((account) => account.role === 'owner' && account.protected), true)
+    const adminOwnerDelete = await fetch(`${baseUrl}/api/accounts/${ownerSession.user.id}`, { method: 'DELETE', headers: memberHeaders })
+    assert.equal(adminOwnerDelete.status, 403)
 
     await json(await fetch(`${baseUrl}/api/accounts/${createdAccount.account.id}`, { method: 'DELETE', headers }))
     const afterAccountDelete = await json(await fetch(discussionBase, { headers }))

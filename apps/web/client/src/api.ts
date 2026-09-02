@@ -1,3 +1,10 @@
+export class ApiRequestError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -8,6 +15,6 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     }
   })
   const body = await response.json().catch(() => null) as { error?: string } | null
-  if (!response.ok) throw new Error(body?.error || 'Cueport could not complete that request.')
+  if (!response.ok) throw new ApiRequestError(response.status, body?.error || 'Cueport could not complete that request.')
   return body as T
 }

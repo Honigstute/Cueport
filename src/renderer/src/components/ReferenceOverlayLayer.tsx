@@ -392,12 +392,10 @@ function ReferencePickerMenu({ references, onChoose, onClose, x, y }: ReferenceP
     window.addEventListener('pointerdown', closeOutside, true)
     window.addEventListener('keydown', closeOnEscape)
     window.addEventListener('resize', onClose)
-    window.addEventListener('scroll', onClose, true)
     return () => {
       window.removeEventListener('pointerdown', closeOutside, true)
       window.removeEventListener('keydown', closeOnEscape)
       window.removeEventListener('resize', onClose)
-      window.removeEventListener('scroll', onClose, true)
     }
   }, [onClose])
 
@@ -405,6 +403,7 @@ function ReferencePickerMenu({ references, onChoose, onClose, x, y }: ReferenceP
     <div
       aria-label="Choose a reference"
       className="reference-picker-menu"
+      onWheelCapture={(event) => event.stopPropagation()}
       ref={menuRef}
       role="menu"
       style={{ left, top }}

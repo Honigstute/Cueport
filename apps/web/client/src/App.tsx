@@ -3,9 +3,11 @@ import type { PresentationDocument } from '../../../../src/shared/presentation'
 import { Stage } from '../../../../src/renderer/src/components/Stage'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
 import { useManagedTimeout } from '../../../../src/renderer/src/hooks/useManagedTimeout'
+import { useAdjacentMediaPreload } from '../../../../src/renderer/src/hooks/useAdjacentMediaPreload'
 import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
 import { nextZoomStop } from '../../../../src/renderer/src/lib/zoom'
 import type { BrandSettings, DisplayMode, ReferenceAsset, SlideAsset } from '../../../../src/renderer/src/types'
+import { canEditPresentations, canManageAccounts } from '../../../../src/shared/accounts'
 import { PublicationCard, type PublishedPresentation } from './PublicationCard'
 import { ViewerControls } from './ViewerControls'
 import { AccountManagerDialog } from './AccountManagerDialog'
@@ -14,12 +16,23 @@ import { CommentLayer, type CommentLayerHandle } from './CommentLayer'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
 import { ConfirmationDialog } from './ConfirmationDialog'
 import { ProfileDialog } from './ProfileDialog'
-import { api } from './api'
+import { ServerStoragePanel, type ServerStorageOverview } from './ServerStoragePanel'
+import { api, ApiRequestError } from './api'
 import type { SessionResponse, UserProfile } from './accountTypes'
+import {
+  consumePrivatePresentationReturnPath,
+  normalizePrivatePresentationReturnPath,
+  rememberPrivatePresentationReturnPath
+} from './privatePresentationReturn'
 
 interface SharedPresentationResponse {
   document: PresentationDocument
   assets: Record<string, string>
+  access: {
+    isPublic: boolean
+    authenticated: boolean
+    canComment: boolean
+  }
 }
 
 interface ViewerSettings {
@@ -84,7 +97,6 @@ function AccountForm({ mode, token, onSuccess }: {
         body: JSON.stringify(mode === 'login' ? { email, password } : { token, password })
       })
       onSuccess(result.user)
-      if (mode !== 'login') history.replaceState(null, '', '/')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-in failed.')
     } finally {
@@ -96,19 +108,11 @@ function AccountForm({ mode, token, onSuccess }: {
     <main className="account-screen">
       <Brand />
       <form className="account-card" onSubmit={(event) => void submit(event)}>
-        <span className="web-eyebrow">Cueport account</span>
         <h1>{mode === 'setup'
           ? 'Create your owner password'
           : mode === 'activate'
             ? existingAccount ? 'Choose a new password' : `Welcome${invitedName ? `, ${invitedName}` : ''}`
             : 'Sign in to Cueport'}</h1>
-        <p>{mode === 'setup'
-          ? 'This finishes the protected owner account on your server.'
-          : mode === 'activate'
-            ? existingAccount
-              ? `Replace the password for ${email || 'your Cueport account'}.`
-              : `Create a password for ${email || 'your invited account'}.`
-            : 'Open private presentations and join discussions.'}</p>
         {mode === 'login' && (
           <label>
             <span>Email</span>
@@ -146,14 +150,18 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
   onProfileChange: (profile: UserProfile) => void
   profile: UserProfile
 }): React.JSX.Element {
+  const mayEdit = canEditPresentations(profile.role)
+  const mayManageAccounts = canManageAccounts(profile.role)
   const [presentations, setPresentations] = useState<PublishedPresentation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [copyMessage, setCopyMessage] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
+  const [serverStorage, setServerStorage] = useState<ServerStorageOverview | null>(null)
+  const [storageLoading, setStorageLoading] = useState(profile.role === 'owner')
+  const [storageError, setStorageError] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<{
     presentation: PublishedPresentation
     type: 'delete' | 'take-offline'
@@ -174,11 +182,27 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
     }
   }, [])
 
-  useEffect(() => { void refresh() }, [refresh])
+  const refreshStorage = useCallback(async (): Promise<void> => {
+    if (profile.role !== 'owner') return
+    setStorageLoading(true)
+    try {
+      setServerStorage(await api<ServerStorageOverview>('/api/server/storage'))
+      setStorageError(null)
+    } catch (cause) {
+      setStorageError(cause instanceof Error ? cause.message : 'Server storage could not be measured.')
+    } finally {
+      setStorageLoading(false)
+    }
+  }, [profile.role])
+
+  useEffect(() => {
+    void refresh()
+    void refreshStorage()
+  }, [refresh, refreshStorage])
 
   const remove = async (presentation: PublishedPresentation): Promise<void> => {
     await api(`/api/presentations/${presentation.id}`, { method: 'DELETE', body: '{}' })
-    await refresh()
+    await Promise.all([refresh(), refreshStorage()])
   }
 
   const rename = async (presentation: PublishedPresentation, name: string): Promise<void> => {
@@ -199,20 +223,18 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
     const requestId = ++copyRequestRef.current
     copyReset.cancel()
     setCopiedId(null)
-    setCopyMessage(null)
+    setError(null)
     try {
       await copyTextToClipboard(presentation.shareUrl)
       if (requestId !== copyRequestRef.current) return
       setCopiedId(presentation.id)
-      setCopyMessage('Private link copied.')
       copyReset.schedule(() => {
         setCopiedId((current) => current === presentation.id ? null : current)
-        setCopyMessage(null)
       }, 2200)
     } catch (cause) {
       if (requestId !== copyRequestRef.current) return
       setCopiedId(null)
-      setCopyMessage(cause instanceof Error ? cause.message : 'The private link could not be copied.')
+      setError(cause instanceof Error ? cause.message : 'The private link could not be copied.')
     }
   }
 
@@ -220,18 +242,25 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
     <main className="dashboard-screen">
       <header className="dashboard-header">
         <Brand />
-        <AccountMenu onAccounts={() => setAccountsOpen(true)} onLogout={onLogout} onPassword={() => setPasswordOpen(true)} onProfile={() => setProfileOpen(true)} profile={profile} />
+        <AccountMenu onAccounts={mayManageAccounts ? () => setAccountsOpen(true) : undefined} onLogout={onLogout} onPassword={() => setPasswordOpen(true)} onProfile={() => setProfileOpen(true)} profile={profile} />
       </header>
       <section className="dashboard-content">
+        {profile.role === 'owner' && (
+          <ServerStoragePanel
+            error={storageError}
+            loading={storageLoading}
+            onRefresh={() => void refreshStorage()}
+            storage={serverStorage}
+          />
+        )}
         {error && <p className="web-error" role="alert">{error}</p>}
-        {copyMessage && <p className={copiedId ? 'web-notice' : 'web-error'} role="status">{copyMessage}</p>}
         {loading ? (
           <div className="dashboard-empty">Loading presentations…</div>
         ) : presentations.length === 0 ? (
           <div className="dashboard-empty">
-            <Icon name="upload" size={24} />
-            <strong>No presentation has been published yet.</strong>
-            <span>Open one in the desktop app and choose Publish.</span>
+            <Icon name={mayEdit ? 'upload' : 'layers'} size={24} />
+            <strong>{mayEdit ? 'No presentation is available to edit yet.' : 'No presentation has been shared with you yet.'}</strong>
+            <span>{mayEdit ? 'Publish one from the desktop app or ask for Editor access to an existing presentation.' : 'Shared presentations will appear here automatically.'}</span>
           </div>
         ) : (
           <div className="publication-grid">
@@ -239,6 +268,7 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
               <PublicationCard
                 copied={copiedId === presentation.id}
                 key={presentation.id}
+                onAccessSaved={() => void refresh()}
                 onCopy={(item) => void copy(item)}
                 onDelete={(item) => setPendingAction({ presentation: item, type: 'delete' })}
                 onRename={rename}
@@ -250,13 +280,13 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
         )}
       </section>
       {profileOpen && <ProfileDialog onClose={() => setProfileOpen(false)} onSaved={onProfileChange} profile={profile} />}
-      {accountsOpen && <AccountManagerDialog onClose={() => setAccountsOpen(false)} />}
+      {accountsOpen && mayManageAccounts && <AccountManagerDialog currentUserId={profile.id} onClose={() => setAccountsOpen(false)} />}
       {passwordOpen && <ChangePasswordDialog onClose={() => setPasswordOpen(false)} />}
       {pendingAction && (
         <ConfirmationDialog
           confirmLabel={pendingAction.type === 'delete' ? 'Delete presentation' : 'Take link offline'}
           description={pendingAction.type === 'delete'
-            ? `“${pendingAction.presentation.name}” and every uploaded revision will be permanently deleted.`
+            ? `“${pendingAction.presentation.name}” and its uploaded web media will be permanently deleted.`
             : `Anyone using the private link for “${pendingAction.presentation.name}” will lose access until you publish it again.`}
           errorMessage={pendingAction.type === 'delete' ? 'The presentation could not be deleted.' : 'The private link could not be taken offline.'}
           eyebrow={pendingAction.type === 'delete' ? 'Delete presentation' : 'Private link'}
@@ -271,31 +301,10 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
   )
 }
 
-function MemberHome({ onLogout, onProfileChange, profile }: {
-  onLogout: () => void
-  onProfileChange: (profile: UserProfile) => void
-  profile: UserProfile
+function SharedViewer({ token, onAuthenticationRequired }: {
+  token: string
+  onAuthenticationRequired: () => void
 }): React.JSX.Element {
-  const [profileOpen, setProfileOpen] = useState(false)
-  const [passwordOpen, setPasswordOpen] = useState(false)
-  return (
-    <main className="dashboard-screen member-home">
-      <header className="dashboard-header">
-        <Brand />
-        <AccountMenu onLogout={onLogout} onPassword={() => setPasswordOpen(true)} onProfile={() => setProfileOpen(true)} profile={profile} />
-      </header>
-      <section className="member-home-message">
-        <Icon name="layers" size={24} />
-        <strong>Open a private presentation link</strong>
-        <span>Your Cueport account is ready. Use a link shared by the presentation owner to view layouts and join discussions.</span>
-      </section>
-      {profileOpen && <ProfileDialog onClose={() => setProfileOpen(false)} onSaved={onProfileChange} profile={profile} />}
-      {passwordOpen && <ChangePasswordDialog onClose={() => setPasswordOpen(false)} />}
-    </main>
-  )
-}
-
-function SharedViewer({ token }: { token: string }): React.JSX.Element {
   const [shared, setShared] = useState<SharedPresentationResponse | null>(null)
   const [view, setView] = useState<ViewerSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -326,10 +335,15 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
         })
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : 'This presentation is unavailable.')
+        if (!active) return
+        if (cause instanceof ApiRequestError && cause.status === 401) {
+          onAuthenticationRequired()
+          return
+        }
+        setError(cause instanceof Error ? cause.message : 'This presentation is unavailable.')
       })
     return () => { active = false }
-  }, [token])
+  }, [onAuthenticationRequired, token])
 
   const assets = useMemo(() => {
     if (!shared) return { slides: [] as SlideAsset[], references: [] as ReferenceAsset[], brand: null as BrandSettings | null }
@@ -362,6 +376,8 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
     }
   }, [shared])
 
+  useAdjacentMediaPreload(assets.slides, activeIndex)
+
   const navigate = useCallback((direction: -1 | 1): void => {
     setActiveIndex((current) => Math.max(0, Math.min(assets.slides.length - 1, current + direction)))
   }, [assets.slides.length])
@@ -388,7 +404,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
         if (!event.repeat) setIsInterfaceVisible((visible) => !visible)
         return
       }
-      if (event.key.toLowerCase() === 'c') {
+      if (event.key.toLowerCase() === 'c' && shared?.access.canComment) {
         event.preventDefault()
         if (!event.repeat) setCommentsEnabled((enabled) => !enabled)
         return
@@ -417,7 +433,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [navigate, zoomBy])
+  }, [navigate, shared?.access.canComment, zoomBy])
 
   if (error) return <main className="share-message"><Brand /><h1>Presentation unavailable</h1><p>{error}</p></main>
   if (!shared || !assets.brand || !view) return <main className="share-message"><Brand /><p>Loading presentation…</p></main>
@@ -427,18 +443,22 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
   return (
     <div className={`public-viewer-shell app-shell${isInterfaceVisible ? '' : ' web-viewer-interface-hidden'}`}>
       <ViewerControls
+        canComment={shared.access.canComment}
         commentsEnabled={commentsEnabled}
         downloadUrl={`/api/share/${encodeURIComponent(token)}/download`}
         isVisible={isInterfaceVisible}
         mode={view.mode}
+        activeSlideIndex={activeIndex}
         onCommentsToggle={() => setCommentsEnabled((enabled) => !enabled)}
         onModeChange={(mode) => setView((current) => current ? { ...current, mode } : current)}
+        onSlideSelect={setActiveIndex}
         onViewportMarkerChange={(viewportMarker) => setView((current) => current ? { ...current, viewportMarker } : current)}
         onViewportToggle={() => setView((current) => current ? { ...current, viewportEnabled: !current.viewportEnabled } : current)}
         onZoomReset={() => setZoom(1)}
         viewportEnabled={view.viewportEnabled}
         viewportHeight={settings.viewport.height}
         viewportMarker={view.viewportMarker}
+        slides={assets.slides}
         zoom={zoom}
       />
       <div className="workspace">
@@ -457,7 +477,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
           onChooseMedia={() => undefined}
           onFitWidthChange={(_slideId, width) => setFitWidth(width)}
           onNavigate={navigate}
-          onCreateCommentAt={createCommentAt}
+          onCreateCommentAt={shared.access.canComment ? createCommentAt : undefined}
           onZoomChange={setZoom}
           phoneBrowserBars={settings.phoneBrowserBars}
           programBarColor={settings.programBarColor}
@@ -468,7 +488,7 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
           viewportEnabled={view.viewportEnabled}
           viewportMarker={view.viewportMarker}
           zoom={view.mode === 'fit-width' && fitWidth ? 1 : zoom}
-          artworkOverlay={slide ? (
+          artworkOverlay={slide && shared.access.canComment ? (
             <CommentLayer
               enabled={commentsEnabled && isInterfaceVisible}
               ref={commentLayerRef}
@@ -487,7 +507,9 @@ function SharedViewer({ token }: { token: string }): React.JSX.Element {
 
 export default function App(): React.JSX.Element {
   const shareMatch = location.pathname.match(/^\/p\/([^/]+)$/)
+  const currentPrivatePresentationPath = normalizePrivatePresentationReturnPath(location.pathname)
   const [session, setSession] = useState<SessionResponse | null>(null)
+  const [shareLoginRequired, setShareLoginRequired] = useState(false)
   const query = new URLSearchParams(location.search)
   const setupToken = query.get('setup') || undefined
   const activationToken = query.get('activate') || undefined
@@ -496,22 +518,48 @@ export default function App(): React.JSX.Element {
     api<SessionResponse>('/api/session').then(setSession).catch(() => setSession({ authenticated: false }))
   }, [shareMatch?.[1]])
 
+  const requireShareAuthentication = useCallback((): void => {
+    if (currentPrivatePresentationPath) {
+      rememberPrivatePresentationReturnPath(sessionStorage, currentPrivatePresentationPath)
+    }
+    setShareLoginRequired(true)
+  }, [currentPrivatePresentationPath])
+
+  const finishAuthentication = (user: UserProfile): void => {
+    const rememberedPath = consumePrivatePresentationReturnPath(sessionStorage)
+    const returnPath = currentPrivatePresentationPath ?? rememberedPath
+
+    if (returnPath) {
+      history.replaceState(null, '', returnPath)
+    } else if (setupToken || activationToken) {
+      history.replaceState(null, '', '/')
+    }
+
+    // Re-render after replaceState so the restored private route opens directly.
+    setSession({ authenticated: true, user })
+  }
+
   if (!session) return <main className="share-message"><Brand /><p>Loading Cueport…</p></main>
   if (activationToken) {
-    return <AccountForm mode="activate" onSuccess={(user) => setSession({ authenticated: true, user })} token={activationToken} />
+    return <AccountForm mode="activate" onSuccess={finishAuthentication} token={activationToken} />
+  }
+  if (shareMatch && (!shareLoginRequired || session.authenticated)) {
+    return (
+      <SharedViewer
+        onAuthenticationRequired={requireShareAuthentication}
+        token={decodeURIComponent(shareMatch[1])}
+      />
+    )
   }
   if (!session.authenticated) {
-    return <AccountForm mode={setupToken ? 'setup' : 'login'} onSuccess={(user) => setSession({ authenticated: true, user })} token={setupToken} />
+    return <AccountForm mode={setupToken ? 'setup' : 'login'} onSuccess={finishAuthentication} token={setupToken} />
   }
   if (!session.user) return <main className="share-message"><Brand /><p>Your account could not be loaded.</p></main>
-  if (shareMatch) return <SharedViewer token={decodeURIComponent(shareMatch[1])} />
 
   const logout = (): void => {
     void api('/api/auth/logout', { method: 'POST', body: '{}' }).finally(() => setSession({ authenticated: false }))
   }
   const updateProfile = (user: UserProfile): void => setSession({ authenticated: true, user })
 
-  return session.user.role === 'owner'
-    ? <Dashboard onLogout={logout} onProfileChange={updateProfile} profile={session.user} />
-    : <MemberHome onLogout={logout} onProfileChange={updateProfile} profile={session.user} />
+  return <Dashboard onLogout={logout} onProfileChange={updateProfile} profile={session.user} />
 }

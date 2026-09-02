@@ -1,7 +1,9 @@
+import type { AccountRole } from '../../../../src/shared/accounts'
+
 export interface UserProfile {
   id: string
   email: string
-  role: 'owner' | 'member'
+  role: AccountRole
   displayName: string
   title: string
   avatarUrl: string | null

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+storage_root=/var/lib/cueport/assets
+
+# Cueport intentionally keeps only the revision referenced as live by each
+# presentation. Run this with the service stopped so no upload can race the
+# database/file cleanup.
+mapfile -t obsolete_revision_ids < <(
+  runuser -u postgres -- psql --dbname=cueport --tuples-only --no-align --command="
+    SELECT revisions.id
+    FROM cueport_revisions revisions
+    JOIN cueport_presentations presentations ON presentations.id = revisions.presentation_id
+    WHERE revisions.id IS DISTINCT FROM presentations.published_revision_id
+    ORDER BY revisions.created_at;
+  "
+)
+
+if ((${#obsolete_revision_ids[@]} == 0)); then
+  echo 'No obsolete Cueport presentation versions found.'
+  exit 0
+fi
+
+runuser -u postgres -- psql --dbname=cueport --set=ON_ERROR_STOP=1 --command="
+  BEGIN;
+  DELETE FROM cueport_revisions revisions
+  USING cueport_presentations presentations
+  WHERE presentations.id = revisions.presentation_id
+    AND revisions.id IS DISTINCT FROM presentations.published_revision_id;
+  COMMIT;
+"
+
+removed_directories=0
+for revision_id in "${obsolete_revision_ids[@]}"; do
+  if [[ ! "$revision_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+    echo "Refusing unsafe revision directory: $revision_id" >&2
+    exit 1
+  fi
+  revision_directory="$storage_root/$revision_id"
+  if [[ -d "$revision_directory" ]]; then
+    rm -rf -- "$revision_directory"
+    ((removed_directories += 1))
+  fi
+done
+
+printf 'Removed %d obsolete database versions and %d asset directories.\n' \
+  "${#obsolete_revision_ids[@]}" "$removed_directories"

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Pool, type PoolClient, type QueryResultRow } from 'pg'
+import type { AccountRole } from '../../../src/shared/accounts'
 import { normalizeEmail } from './security'
 
 export interface DatabaseConfig {
@@ -11,7 +12,7 @@ export interface AuthenticatedUser extends QueryResultRow {
   id: string
   email: string
   password_hash: string | null
-  role: 'owner' | 'member'
+  role: AccountRole
   display_name: string
   title: string
   avatar_mime_type: string | null
@@ -38,7 +39,7 @@ export async function runMigrations(pool: Pool, ownerEmailValue: string): Promis
         id uuid PRIMARY KEY,
         email text NOT NULL UNIQUE,
         password_hash text,
-        role text NOT NULL CHECK (role IN ('owner', 'member')),
+        role text NOT NULL CHECK (role IN ('owner', 'viewer', 'editor', 'admin')),
         display_name text NOT NULL DEFAULT 'Cueport user',
         title text NOT NULL DEFAULT '',
         avatar_mime_type text,
@@ -70,11 +71,20 @@ export async function runMigrations(pool: Pool, ownerEmailValue: string): Promis
         id uuid PRIMARY KEY,
         owner_id uuid NOT NULL REFERENCES cueport_users(id) ON DELETE CASCADE,
         name text NOT NULL,
+        is_public boolean NOT NULL DEFAULT false,
         published_revision_id uuid,
         share_token_hash text UNIQUE,
         share_token_cipher text,
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS cueport_presentation_access (
+        presentation_id uuid NOT NULL REFERENCES cueport_presentations(id) ON DELETE CASCADE,
+        user_id uuid NOT NULL REFERENCES cueport_users(id) ON DELETE CASCADE,
+        granted_by uuid NOT NULL REFERENCES cueport_users(id) ON DELETE CASCADE,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (presentation_id, user_id)
       );
 
       CREATE TABLE IF NOT EXISTS cueport_revisions (
@@ -96,6 +106,8 @@ export async function runMigrations(pool: Pool, ownerEmailValue: string): Promis
         expected_bytes bigint NOT NULL CHECK (expected_bytes >= 0),
         stored_bytes bigint,
         storage_name text NOT NULL,
+        content_sha256 text CONSTRAINT cueport_revision_assets_sha256_check
+          CHECK (content_sha256 IS NULL OR content_sha256 ~ '^[0-9a-f]{64}$'),
         uploaded_at timestamptz,
         UNIQUE (revision_id, asset_key)
       );
@@ -134,7 +146,13 @@ export async function runMigrations(pool: Pool, ownerEmailValue: string): Promis
       CREATE INDEX IF NOT EXISTS cueport_sessions_expiry_idx ON cueport_sessions(expires_at);
       CREATE INDEX IF NOT EXISTS cueport_api_tokens_expiry_idx ON cueport_api_tokens(expires_at);
       CREATE INDEX IF NOT EXISTS cueport_presentations_owner_idx ON cueport_presentations(owner_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS cueport_presentation_access_user_idx
+        ON cueport_presentation_access(user_id, presentation_id);
       CREATE INDEX IF NOT EXISTS cueport_revision_assets_revision_idx ON cueport_revision_assets(revision_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS cueport_one_live_revision_idx
+        ON cueport_revisions(presentation_id) WHERE status = 'published';
+      CREATE UNIQUE INDEX IF NOT EXISTS cueport_one_draft_revision_idx
+        ON cueport_revisions(presentation_id) WHERE status = 'draft';
       CREATE INDEX IF NOT EXISTS cueport_comment_threads_presentation_slide_idx
         ON cueport_comment_threads(presentation_id, slide_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS cueport_comments_thread_idx
@@ -154,11 +172,33 @@ export async function runMigrations(pool: Pool, ownerEmailValue: string): Promis
       ALTER TABLE cueport_users ADD COLUMN IF NOT EXISTS avatar_updated_at timestamptz;
       ALTER TABLE cueport_users ADD COLUMN IF NOT EXISTS is_protected boolean NOT NULL DEFAULT false;
       ALTER TABLE cueport_users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+      ALTER TABLE cueport_presentations ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;
+      ALTER TABLE cueport_revision_assets ADD COLUMN IF NOT EXISTS content_sha256 text;
       ALTER TABLE cueport_users DROP CONSTRAINT IF EXISTS cueport_users_role_check;
-      ALTER TABLE cueport_users ADD CONSTRAINT cueport_users_role_check CHECK (role IN ('owner', 'member'));
+      UPDATE cueport_users SET role = 'viewer' WHERE role = 'member';
+      ALTER TABLE cueport_users ADD CONSTRAINT cueport_users_role_check
+        CHECK (role IN ('owner', 'viewer', 'editor', 'admin'));
       CREATE UNIQUE INDEX IF NOT EXISTS cueport_single_owner_idx
         ON cueport_users ((role)) WHERE role = 'owner' AND deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS cueport_revision_assets_fingerprint_idx
+        ON cueport_revision_assets (content_sha256, expected_bytes, mime_type)
+        WHERE uploaded_at IS NOT NULL AND content_sha256 IS NOT NULL;
     `)
+
+    const assetFingerprintConstraint = await client.query<{ exists: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'cueport_revision_assets_sha256_check'
+          AND conrelid = 'cueport_revision_assets'::regclass
+      ) AS exists
+    `)
+    if (!assetFingerprintConstraint.rows[0]?.exists) {
+      await client.query(`
+        ALTER TABLE cueport_revision_assets
+        ADD CONSTRAINT cueport_revision_assets_sha256_check
+        CHECK (content_sha256 IS NULL OR content_sha256 ~ '^[0-9a-f]{64}$')
+      `)
+    }
 
     // The configured owner is a permanent recovery path. Enforce that rule in
     // PostgreSQL as well as the API so no future route can delete it by mistake.

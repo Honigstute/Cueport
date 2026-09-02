@@ -83,6 +83,18 @@ export interface PublishingResult {
   revisionNumber: number
 }
 
+export type PublishingProgressPhase = 'preparing' | 'uploading' | 'finalizing' | 'complete'
+
+/** Byte-backed desktop publishing progress presented as one continuous operation. */
+export interface PublishingProgress {
+  phase: PublishingProgressPhase
+  progress: number
+  uploadedBytes: number
+  totalBytes: number
+}
+
+export const PUBLISHING_PROGRESS_CHANNEL = 'publishing:progress'
+
 export interface PublicationSource {
   document: PresentationDocument
   assets: Array<{
@@ -111,4 +123,5 @@ export interface CueportHost<ImportedFile = unknown> {
   signInToPublishing: (request: PublishingSignInRequest) => Promise<PublishingStatus>
   signOutOfPublishing: () => Promise<PublishingStatus>
   publishPresentation: (id: string) => Promise<PublishingResult>
+  onPublishingProgress: (listener: (progress: PublishingProgress) => void) => () => void
 }

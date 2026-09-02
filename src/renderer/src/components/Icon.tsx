@@ -21,6 +21,7 @@ export type IconName =
   | 'more'
   | 'palette'
   | 'play'
+  | 'refresh'
   | 'remove'
   | 'send'
   | 'settings'
@@ -59,6 +60,7 @@ export function Icon({ name, size = 18, ...props }: IconProps): React.JSX.Elemen
     more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,
     palette: <><path d="M12 3a9 9 0 1 0 0 18h1.5a1.7 1.7 0 0 0 0-3.4H12a1.6 1.6 0 0 1 0-3.2h2.5A6.5 6.5 0 0 0 21 8.1C21 4.7 16.8 3 12 3Z" /><circle cx="7.5" cy="9" r=".8" fill="currentColor" stroke="none" /><circle cx="10.5" cy="6.5" r=".8" fill="currentColor" stroke="none" /><circle cx="15" cy="6.7" r=".8" fill="currentColor" stroke="none" /></>,
     play: <><path d="m9 6 9 6-9 6Z" /></>,
+    refresh: <><path d="M20 7v5h-5" /><path d="M18.2 16.7A8 8 0 1 1 19.8 9L20 12" /></>,
     remove: <><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6" /></>,
     send: <><path d="m3 11 17-8-6.5 18-2.7-7.8L3 11Z" /><path d="m10.8 13.2 4.8-4.8" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.09A1.7 1.7 0 0 0 8.97 19.35a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.09A1.7 1.7 0 0 0 4.65 8.94a1.7 1.7 0 0 0-.34-1.88L4.25 7l2.83-2.83.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 10.05 3H10v-.02h4V3a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06L19.8 7l-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03H21v4h-.04A1.7 1.7 0 0 0 19.4 15Z" /></>,

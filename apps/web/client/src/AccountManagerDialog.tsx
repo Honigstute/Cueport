@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from '../../../../src/renderer/src/components/Icon'
 import { useManagedTimeout } from '../../../../src/renderer/src/hooks/useManagedTimeout'
 import { copyTextToClipboard } from '../../../../src/renderer/src/lib/clipboard'
+import { ASSIGNABLE_ACCOUNT_ROLES, type AccountRole, type AssignableAccountRole } from '../../../../src/shared/accounts'
 import { api } from './api'
 import type { AccountSummary } from './accountTypes'
 import { prepareAvatarDataUrl } from './avatar'
@@ -14,13 +15,28 @@ interface AccountDraft {
   avatarDataUrl?: string | null
   displayName: string
   email: string
+  role: AssignableAccountRole
   title: string
 }
 
-const EMPTY_DRAFT: AccountDraft = { displayName: '', email: '', title: '' }
+const EMPTY_DRAFT: AccountDraft = { displayName: '', email: '', role: 'viewer', title: '' }
 
-function AccountEditor({ account, onCancel, onSaved }: {
+const ROLE_LABELS: Record<AccountRole, string> = {
+  owner: 'Owner',
+  viewer: 'Viewer',
+  editor: 'Editor',
+  admin: 'Admin'
+}
+
+const ROLE_DESCRIPTIONS: Record<AssignableAccountRole, string> = {
+  viewer: 'Can view assigned presentations and add comments.',
+  editor: 'Viewer access plus editing, publishing, and sharing assigned presentations.',
+  admin: 'Editor access plus account administration.'
+}
+
+function AccountEditor({ account, currentUserId, onCancel, onSaved }: {
   account: AccountSummary | null
+  currentUserId: string
   onCancel: () => void
   onSaved: (passwordUrl?: string) => void
 }): React.JSX.Element {
@@ -28,6 +44,7 @@ function AccountEditor({ account, onCancel, onSaved }: {
   const [draft, setDraft] = useState<AccountDraft>(account ? {
     displayName: account.displayName,
     email: account.email,
+    role: account.role === 'owner' ? 'viewer' : account.role,
     title: account.title
   } : EMPTY_DRAFT)
   const [busy, setBusy] = useState(false)
@@ -80,13 +97,28 @@ function AccountEditor({ account, onCancel, onSaved }: {
       <label className="account-field"><span>Email</span><input autoFocus={!account?.protected} disabled={account?.protected} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} required type="email" value={draft.email} /></label>
       <label className="account-field"><span>Name</span><input autoFocus={Boolean(account?.protected)} maxLength={80} onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))} required value={draft.displayName} /></label>
       <label className="account-field"><span>Title</span><input maxLength={100} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Client reviewer" value={draft.title} /></label>
+      <label className="account-field">
+        <span>Role</span>
+        <span className="account-role-select">
+          <select
+            aria-describedby="account-role-description"
+            disabled={account?.id === currentUserId}
+            onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value as AssignableAccountRole }))}
+            value={draft.role}
+          >
+            {ASSIGNABLE_ACCOUNT_ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
+          </select>
+          <Icon aria-hidden="true" name="chevron-down" size={15} />
+        </span>
+        <small id="account-role-description">{account?.id === currentUserId ? 'Another Admin or the Owner must change your role.' : ROLE_DESCRIPTIONS[draft.role]}</small>
+      </label>
       {error && <p className="web-error" role="alert">{error}</p>}
       <div className="account-dialog-actions"><button className="web-secondary" onClick={onCancel} type="button">Cancel</button><button className="web-primary" disabled={busy} type="submit">{busy ? 'Saving…' : account ? 'Save account' : 'Create account'}</button></div>
     </form>
   )
 }
 
-export function AccountManagerDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
+export function AccountManagerDialog({ currentUserId, onClose }: { currentUserId: string; onClose: () => void }): React.JSX.Element {
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
   const [editing, setEditing] = useState<AccountSummary | 'new' | null>(null)
   const [passwordUrl, setPasswordUrl] = useState<string | null>(null)
@@ -182,14 +214,17 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
         {error && <p className="web-error" role="alert">{error}</p>}
         {passwordUrl && (
           <div className="setup-link-result">
-            <div><strong>Set or reset password link</strong><span>Send this single-use private link to the account owner. It expires in seven days and replaces every older password link.</span></div>
+            <div><strong>Set or reset password link</strong><span>Send this single-use private link to this person. It expires in seven days and replaces every older password link.</span></div>
             <input aria-label="Password link" readOnly value={passwordUrl} />
-            <button className="web-primary" onClick={() => void copyPasswordUrl()} type="button">{copied ? 'Copied' : 'Copy password link'}</button>
+            <button className="web-primary web-copy-feedback account-copy-password-link" onClick={() => void copyPasswordUrl()} type="button">
+              <span aria-live="polite">{copied ? 'Link copied' : 'Copy password link'}</span>
+            </button>
           </div>
         )}
         {editing ? (
           <AccountEditor
             account={editing === 'new' ? null : editing}
+            currentUserId={currentUserId}
             onCancel={closeEditor}
             onSaved={(url) => { closeEditor(); if (url) { setPasswordUrl(url); clearCopyFeedback() } void refresh() }}
           />
@@ -198,9 +233,10 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }): Reac
             {accounts.map((account) => (
               <article className="account-row" key={account.id}>
                 <ProfileAvatar profile={account} size={44} />
-                <div className="account-row-copy"><strong>{account.displayName}</strong><span>{account.title || account.email}</span><small>{account.protected ? 'Owner' : account.active ? account.email : `${account.email} · Setup pending`}</small></div>
+                <div className="account-row-copy"><strong>{account.displayName}</strong><span>{account.title || account.email}</span><small>{account.active ? account.email : `${account.email} · Setup pending`}</small></div>
+                <span className="account-role-badge" data-role={account.role}>{ROLE_LABELS[account.role]}</span>
                 <div className="account-row-actions">
-                  <button aria-label={`Edit ${account.displayName}`} className="icon-button" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setPasswordUrl(null); setEditing(account) }} title="Edit account" type="button"><Icon name="edit" size={15} /></button>
+                  {!account.protected && <button aria-label={`Edit ${account.displayName}`} className="icon-button" onClick={(event) => { editorReturnFocusRef.current = event.currentTarget; setPasswordUrl(null); setEditing(account) }} title="Edit account" type="button"><Icon name="edit" size={15} /></button>}
                   {!account.protected && (
                     <button aria-busy={passwordLinkAccountId === account.id} className="account-password-link" disabled={passwordLinkAccountId !== null} onClick={() => void createPasswordLink(account)} title={account.active ? 'Create password reset link' : 'Create password setup link'} type="button">
                       <Icon name="lock" size={15} />

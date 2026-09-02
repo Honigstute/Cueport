@@ -240,7 +240,11 @@ html[data-platform="darwin"] .top-bar-content {
 }
 
 .top-bar-content[data-home="true"] {
-  grid-template-columns: auto;
+  grid-template-columns: auto 1fr auto;
+}
+
+.top-bar-content[data-home="true"] .publishing-account-button {
+  grid-column: 3;
 }
 
 .top-bar button,
@@ -617,6 +621,70 @@ html[data-platform="darwin"] .top-bar-content {
   color: var(--control-selected-ink);
 }
 
+.publishing-account-heading {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.publishing-account-heading .icon-button {
+  flex: 0 0 auto;
+  margin: -7px -7px 0 16px;
+}
+
+.publishing-account-signed-in {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: 36px minmax(0, 1fr);
+  margin-top: var(--space-5);
+}
+
+.publishing-account-icon {
+  align-items: center;
+  background: var(--control-selected);
+  border-radius: var(--radius-sm);
+  color: var(--control-selected-ink);
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.publishing-account-signed-in strong,
+.publishing-account-signed-in small {
+  display: block;
+}
+
+.publishing-account-signed-in strong {
+  color: var(--ink-100);
+  font-size: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.publishing-account-signed-in small,
+.publishing-account-offline-note {
+  color: var(--ink-400);
+  font-size: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.publishing-account-signed-in > p,
+.publishing-account-signed-in > .rename-dialog-actions,
+.publishing-account-signed-in > .rename-error {
+  grid-column: 1 / -1;
+}
+
+.publishing-account-signed-in > p,
+.publishing-account-offline-note {
+  margin: 0;
+}
+
+.publishing-account-dialog .publish-login {
+  margin-top: var(--space-5);
+}
+
 /* Local presentation home: a quiet contact sheet, with the new-project card
    sharing the exact geometry of recoverable saved work. */
 .home-screen {
@@ -894,7 +962,44 @@ html[data-platform="darwin"] .top-bar-content {
 
 /* Publishing is a narrow desktop-to-server flow. Credentials never leave the
    protected Electron host after sign-in; this dialog only collects them. */
-.publish-dialog { width: min(480px, calc(100vw - 32px)); }
+@property --publish-progress-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
+}
+
+.publish-dialog {
+  --publish-progress-angle: 0deg;
+  isolation: isolate;
+  position: relative;
+  transition: --publish-progress-angle 120ms linear;
+  width: min(480px, calc(100vw - 32px));
+}
+
+.publish-dialog::after {
+  background: conic-gradient(
+    from -90deg,
+    var(--signal) 0deg,
+    var(--signal) var(--publish-progress-angle),
+    transparent var(--publish-progress-angle),
+    transparent 360deg
+  );
+  border-radius: calc(var(--radius-lg) + 1px);
+  content: "";
+  inset: -1px;
+  opacity: 0;
+  padding: 2px;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity 160ms ease;
+  z-index: 2;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.publish-dialog[data-publishing="true"]::after { opacity: 1; }
 .publish-dialog .rename-dialog-copy p { overflow-wrap: anywhere; }
 .publish-login,
 .publish-confirmation,
@@ -932,6 +1037,12 @@ html[data-platform="darwin"] .top-bar-content {
   height: 42px;
   padding: 0 var(--space-3);
   user-select: text;
+}
+
+.publish-dialog .rename-dialog-actions .primary { font-variant-numeric: tabular-nums; }
+.publish-dialog .publish-copy-button {
+  min-width: 108px;
+  white-space: nowrap;
 }
 
 /* Permanent canvas with overlay controls */
@@ -1392,7 +1503,9 @@ html[data-platform="darwin"] .top-bar-content {
   border: 1px solid var(--ui-outline);
   border-radius: calc(var(--radius-sm) + 4px);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
-  max-height: 352px;
+  display: flex;
+  flex-direction: column;
+  max-height: min(352px, calc(100vh - 16px));
   overflow: hidden;
   padding: var(--space-2);
   position: fixed;
@@ -1420,16 +1533,29 @@ html[data-platform="darwin"] .top-bar-content {
 
 .reference-picker-grid {
   display: grid;
+  flex: 1 1 auto;
   gap: var(--space-3) var(--space-2);
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-height: 292px;
+  min-height: 0;
+  overscroll-behavior-y: contain;
   overflow-y: auto;
-  padding: 2px 0 var(--space-2);
-  scrollbar-width: none;
+  padding: 2px 4px var(--space-2) 0;
+  scrollbar-color: var(--ui-outline) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .reference-picker-grid::-webkit-scrollbar {
-  display: none;
+  width: 5px;
+}
+
+.reference-picker-grid::-webkit-scrollbar-thumb {
+  background: var(--ui-outline);
+  border-radius: var(--radius-round);
+}
+
+.reference-picker-grid::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .reference-picker-grid button {
@@ -1937,6 +2063,50 @@ html[data-slide-direction="previous"]::view-transition-new(cueport-slide) {
   position: relative;
   width: max-content;
   z-index: 1;
+}
+
+/* Replacing an img src can leave the previously decoded bitmap painted for
+   seconds. Each slide now owns a fresh media node; this neutral state covers
+   its reserved dimensions until the new bytes are decoded and ready to paint. */
+.artwork-media[data-ready="false"] {
+  opacity: 0;
+}
+
+.artwork-media-loading {
+  align-items: center;
+  background: color-mix(in srgb, var(--stage-background) 92%, var(--ui-outline));
+  color: var(--ui-text-muted);
+  display: flex;
+  font-size: var(--text-primary);
+  inset: 0;
+  justify-content: center;
+  line-height: 1.4;
+  min-height: 80px;
+  position: absolute;
+  text-align: center;
+  z-index: 2;
+}
+
+.artwork-media-loading[data-status="loading"] {
+  animation: artwork-loading-reveal 0s linear 120ms both;
+}
+
+.artwork-media-loading[data-status="loading"] > span {
+  animation: artwork-loading-spin 700ms linear infinite;
+  border: 2px solid color-mix(in srgb, var(--ui-text-muted) 35%, transparent);
+  border-radius: 50%;
+  border-top-color: var(--ui-active);
+  height: 22px;
+  width: 22px;
+}
+
+@keyframes artwork-loading-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes artwork-loading-spin {
+  to { transform: rotate(360deg); }
 }
 
 .stage-fit-width .artwork-content,

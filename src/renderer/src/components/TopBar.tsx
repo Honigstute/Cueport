@@ -3,6 +3,7 @@ import { formatDimensions } from '../lib/assets'
 import type { DisplayResolution } from '../lib/displayResolution'
 import { formatZoom } from '../lib/zoom'
 import type { DisplayMode, SequenceTitleSettings, SlideAsset, ViewportSize } from '../types'
+import type { PublishingStatus } from '../../../shared/projects'
 import { Icon, type IconName } from './Icon'
 import { SettingToggle } from './SettingToggle'
 
@@ -18,9 +19,11 @@ interface TopBarProps {
   sequenceTitles: SequenceTitleSettings
   zoom: number
   displayResolution: DisplayResolution | null
+  publishingStatus: PublishingStatus | null
   onGoHome: () => void
   onPublish: () => void
   onModeChange: (mode: DisplayMode) => void
+  onPublishingAccount: () => void
   onSequenceTitlesChange: (patch: Partial<SequenceTitleSettings>) => void
   onToggleChrome: () => void
   onViewportToggle: () => void
@@ -45,9 +48,11 @@ export function TopBar({
   sequenceTitles,
   zoom,
   displayResolution,
+  publishingStatus,
   onGoHome,
   onPublish,
   onModeChange,
+  onPublishingAccount,
   onSequenceTitlesChange,
   onToggleChrome,
   onViewportToggle,
@@ -83,10 +88,22 @@ export function TopBar({
     <header aria-label={isHome ? 'Cueport' : 'Cueport controls'} className={`top-bar${isHome ? ' top-bar-home' : ''}`} tabIndex={-1}>
       <div aria-hidden={isInert} className="top-bar-content" data-home={isHome} inert={isInert ? true : undefined}>
         {isHome ? (
-          <div className="brand-lockup" aria-label="Cueport">
-            <span className="brand-mark"><Icon name="target" size={16} /></span>
-            <span className="brand-word">cueport</span>
-          </div>
+          <>
+            <div className="brand-lockup" aria-label="Cueport">
+              <span className="brand-mark"><Icon name="target" size={16} /></span>
+              <span className="brand-word">cueport</span>
+            </div>
+            <button
+              className="icon-button publishing-account-button"
+              data-active={publishingStatus?.signedIn}
+              onClick={onPublishingAccount}
+              title={publishingStatus?.signedIn ? `Desktop account · ${publishingStatus.email}` : 'Sign in for publishing'}
+              type="button"
+            >
+              <Icon name="user" size={17} />
+              <span className="sr-only">Desktop publishing account</span>
+            </button>
+          </>
         ) : (
           <div
             aria-hidden={!isChromeVisible}
@@ -231,6 +248,16 @@ export function TopBar({
         </div>}
 
         {!isHome && <div className="top-actions">
+          <button
+            className="icon-button persistent-action publishing-account-button"
+            data-active={publishingStatus?.signedIn}
+            onClick={onPublishingAccount}
+            title={publishingStatus?.signedIn ? `Desktop account · ${publishingStatus.email}` : 'Sign in for publishing'}
+            type="button"
+          >
+            <Icon name="user" size={17} />
+            <span className="sr-only">Desktop publishing account</span>
+          </button>
           <button className="icon-button persistent-action" onClick={onPublish} title="Publish private web link" type="button">
             <Icon name="upload" size={17} />
             <span className="sr-only">Publish private web link</span>

@@ -100,24 +100,83 @@ function ArtworkContextMenu({ onClose, onCreateComment, onPlaceReference, x, y }
 }
 
 function ArtworkMedia({ slide, style }: { slide: SlideAsset; style?: React.CSSProperties }): React.JSX.Element {
+  const mediaKey = `${slide.id}:${slide.url}`
+  const [readyKey, setReadyKey] = useState<string | null>(null)
+  const [failedKey, setFailedKey] = useState<string | null>(null)
+  const isReady = readyKey === mediaKey
+  const hasFailed = failedKey === mediaKey
+  const loadingState = hasFailed ? 'error' : 'loading'
+
+  const markImageReady = (image: HTMLImageElement): void => {
+    const finish = (): void => {
+      setFailedKey((current) => current === mediaKey ? null : current)
+      setReadyKey(mediaKey)
+    }
+    if (typeof image.decode !== 'function') {
+      finish()
+      return
+    }
+    void image.decode().then(finish, finish)
+  }
+
+  const loadingIndicator = !isReady ? (
+    <span
+      aria-live="polite"
+      className="artwork-media-loading"
+      data-status={loadingState}
+      role="status"
+    >
+      {hasFailed ? 'Media could not be loaded' : <span aria-hidden="true" />}
+    </span>
+  ) : null
+
   if (slide.mimeType === 'video/mp4') {
     return (
-      <video
-        aria-label={slide.name}
-        controls
-        draggable={false}
-        key={slide.id}
-        loop
-        playsInline
-        poster={slide.thumbnailUrl || undefined}
-        preload="metadata"
-        src={slide.url}
-        style={style}
-      />
+      <>
+        {loadingIndicator}
+        <video
+          aria-label={slide.name}
+          className="artwork-media"
+          controls
+          data-ready={isReady}
+          draggable={false}
+          height={slide.height}
+          key={mediaKey}
+          loop
+          onError={() => setFailedKey(mediaKey)}
+          onLoadedData={() => {
+            setFailedKey((current) => current === mediaKey ? null : current)
+            setReadyKey(mediaKey)
+          }}
+          playsInline
+          poster={slide.thumbnailUrl || undefined}
+          preload="metadata"
+          src={slide.url}
+          style={style}
+          width={slide.width}
+        />
+      </>
     )
   }
 
-  return <img alt={slide.name} draggable={false} src={slide.url} style={style} />
+  return (
+    <>
+      {loadingIndicator}
+      <img
+        alt={slide.name}
+        className="artwork-media"
+        data-ready={isReady}
+        draggable={false}
+        height={slide.height}
+        key={mediaKey}
+        onError={() => setFailedKey(mediaKey)}
+        onLoad={(event) => markImageReady(event.currentTarget)}
+        src={slide.url}
+        style={style}
+        width={slide.width}
+      />
+    </>
+  )
 }
 
 /**
@@ -442,6 +501,7 @@ export function Stage({
       aria-hidden="true"
       className="canvas-image-glow"
       draggable={false}
+      key={`${slide.id}:glow`}
       src={slide.mimeType === 'video/mp4' ? slide.thumbnailUrl : slide.url}
     />
   ) : null

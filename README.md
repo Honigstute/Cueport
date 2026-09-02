@@ -66,26 +66,26 @@ See [`docs/PRESENTATION_FORMAT.md`](docs/PRESENTATION_FORMAT.md) for the documen
 ## Desktop and web together
 
 `pnpm verify` tests and builds both applications. The desktop app remains the
-editor and local library; the web service receives explicit immutable revisions
-and serves revocable, unguessable client links.
+editor and local library; the web service stores one current published version
+per presentation and serves revocable, unguessable client links.
 
 Publishing from the desktop app:
 
 1. Save the presentation locally.
 2. Choose the Publish icon in the top bar.
-3. Sign in with the Cueport owner account once. The desktop token is kept in the
+3. Sign in with a Cueport Editor, Admin, or Owner account once. The desktop token is kept in the
    operating system's protected credential storage.
 4. Publish, then copy the private link.
 
-The owner dashboard is hosted at `https://cueport.steveschreiner.de`. It lists
-published revisions, manages invited member profiles, and can copy, disable, or
-delete client links. Signed-in members can open shared presentations and use C
+The web dashboard is hosted at `https://cueport.steveschreiner.de`. It lists
+published presentations, manages role-based accounts, and can copy, disable, or
+delete client links. Signed-in accounts can open shared presentations and use C
 or the comment button to join artwork-anchored discussions. Right-clicking the
 artwork offers **Create Comment** and **Place Reference** directly. A short click
 opens a discussion pin; its creator (or the owner) can drag it to a new point.
 Every signed-in account can change its own password from the account menu. The
-owner can create a single-use, seven-day password link for a new member or reset
-an existing member's forgotten password; completing either recovery signs out
+Admins and the Owner can create a single-use, seven-day password link for a new
+account or reset an existing account's forgotten password; completing either recovery signs out
 the account's older browser and desktop sessions.
 
 ## Deployment boundary
@@ -94,7 +94,7 @@ The Hetzner installation is isolated from the portfolio:
 
 - dedicated `cueport` service user and port 3002;
 - dedicated PostgreSQL database and login;
-- immutable assets under `/var/lib/cueport/assets`;
+- current publication assets under `/var/lib/cueport/assets`;
 - daily database and asset backups under `/var/backups/cueport`;
 - automatic HTTPS through the existing Caddy proxy;
 - atomic web releases, with the newest three retained for rollback.

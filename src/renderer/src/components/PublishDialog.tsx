@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { PublishingResult, PublishingStatus } from '../../../shared/projects'
+import type { PublishingProgress, PublishingResult, PublishingStatus } from '../../../shared/projects'
 import { useManagedTimeout } from '../hooks/useManagedTimeout'
 import { copyTextToClipboard } from '../lib/clipboard'
 
@@ -10,6 +10,7 @@ interface PublishDialogProps {
   isDirty: boolean
   onClose: () => void
   onPublish: () => Promise<PublishingResult>
+  onStatusChange?: (status: PublishingStatus) => void
 }
 
 function cleanError(cause: unknown, fallback: string): string {
@@ -18,7 +19,7 @@ function cleanError(cause: unknown, fallback: string): string {
     : fallback
 }
 
-export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onPublish }: PublishDialogProps): React.JSX.Element {
+export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onPublish, onStatusChange }: PublishDialogProps): React.JSX.Element {
   const [status, setStatus] = useState<PublishingStatus | null>(null)
   const [serverUrl, setServerUrl] = useState('https://cueport.steveschreiner.de')
   const [email, setEmail] = useState('stevedotschreiner@gmail.com')
@@ -26,6 +27,7 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<PublishingResult | null>(null)
+  const [publishingProgress, setPublishingProgress] = useState<PublishingProgress | null>(null)
   const [copied, setCopied] = useState(false)
   const copyReset = useManagedTimeout()
 
@@ -35,9 +37,14 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
         setStatus(next)
         setServerUrl(next.serverUrl)
         if (next.email) setEmail(next.email)
+        onStatusChange?.(next)
       })
       .catch((cause) => setError(cleanError(cause, 'Publishing settings could not be loaded.')))
-  }, [])
+  }, [onStatusChange])
+
+  useEffect(() => window.cueport?.onPublishingProgress((next) => {
+    setPublishingProgress({ ...next, progress: Math.max(0, Math.min(1, next.progress)) })
+  }), [])
 
   const signIn = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
@@ -47,6 +54,7 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
     try {
       const next = await window.cueport.signInToPublishing({ serverUrl, email, password })
       setStatus(next)
+      onStatusChange?.(next)
       setPassword('')
     } catch (cause) {
       setError(cleanError(cause, 'Cueport could not sign in to the publishing server.'))
@@ -58,9 +66,11 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
   const publish = async (): Promise<void> => {
     setBusy(true)
     setError(null)
+    setPublishingProgress({ phase: 'preparing', progress: 0.01, uploadedBytes: 0, totalBytes: 0 })
     try {
       setResult(await onPublish())
     } catch (cause) {
+      setPublishingProgress(null)
       setError(cleanError(cause, 'The presentation could not be published.'))
     } finally {
       setBusy(false)
@@ -71,8 +81,11 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
     if (!window.cueport) return
     setBusy(true)
     try {
-      setStatus(await window.cueport.signOutOfPublishing())
+      const next = await window.cueport.signOutOfPublishing()
+      setStatus(next)
+      onStatusChange?.(next)
       setResult(null)
+      setPublishingProgress(null)
     } finally {
       setBusy(false)
     }
@@ -90,13 +103,42 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
     }
   }
 
+  const progressPercent = Math.round((publishingProgress?.progress ?? 0) * 100)
+  const progressLabel = publishingProgress
+    ? publishingProgress.phase === 'preparing'
+      ? isDirty ? 'Saving and preparing…' : 'Preparing…'
+      : publishingProgress.phase === 'finalizing'
+        ? 'Finishing…'
+        : publishingProgress.phase === 'complete'
+          ? 'Published'
+          : `Publishing ${progressPercent}%`
+    : null
+
   return createPortal(
     <div
       className="dialog-backdrop publish-dialog-backdrop"
       onKeyDown={(event) => event.key === 'Escape' && !busy && onClose()}
       onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}
     >
-      <section aria-labelledby="publish-dialog-title" aria-modal="true" className="rename-dialog publish-dialog" role="dialog">
+      <section
+        aria-busy={busy}
+        aria-labelledby="publish-dialog-title"
+        aria-modal="true"
+        className="rename-dialog publish-dialog"
+        data-publishing={publishingProgress ? 'true' : undefined}
+        role="dialog"
+        style={{ '--publish-progress-angle': `${progressPercent * 3.6}deg` } as React.CSSProperties}
+      >
+        {publishingProgress && (
+          <span
+            aria-label="Publishing presentation"
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={progressPercent}
+            className="sr-only"
+            role="progressbar"
+          />
+        )}
         <div className="rename-dialog-copy">
           <span className="eyebrow">Private web link</span>
           <h2 id="publish-dialog-title">Publish presentation</h2>
@@ -112,7 +154,7 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
               <span className="rename-input-shell"><input disabled={busy} onChange={(event) => setServerUrl(event.target.value)} value={serverUrl} /></span>
             </label>
             <label className="rename-field">
-              <span>Owner email</span>
+              <span>Email</span>
               <span className="rename-input-shell"><input autoComplete="email" disabled={busy} onChange={(event) => setEmail(event.target.value)} type="email" value={email} /></span>
             </label>
             <label className="rename-field">
@@ -127,13 +169,15 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
           </form>
         ) : result ? (
           <div className="publish-result">
-            <strong>Revision {result.revisionNumber} is live.</strong>
-            <p>The private link can be copied now and disabled later from the web dashboard.</p>
+            <strong>The presentation is live.</strong>
+            <p>The existing link now shows this version and can be managed from the web dashboard.</p>
             <input aria-label="Private presentation link" readOnly value={result.shareUrl} />
             {error && <p className="field-error rename-error">{error}</p>}
             <div className="rename-dialog-actions">
               <button onClick={onClose} type="button">Back to presentation</button>
-              <button className="primary" onClick={() => void copyLink()} type="button">{copied ? 'Copied' : 'Copy link'}</button>
+              <button className="primary publish-copy-button" onClick={() => void copyLink()} type="button">
+                <span aria-live="polite">{copied ? 'Link copied' : 'Copy link'}</span>
+              </button>
             </div>
           </div>
         ) : (
@@ -142,13 +186,15 @@ export function PublishDialog({ presentationName, isSaved, isDirty, onClose, onP
               <span>Signed in as {status.email}</span>
               <button disabled={busy} onClick={() => void signOut()} type="button">Sign out</button>
             </div>
-            <p>{isDirty ? 'Cueport will save your current changes first, then publish a new revision.' : 'Cueport will publish a new immutable revision of this saved presentation.'}</p>
+            <p>{isDirty
+              ? 'Cueport will save your current changes first, then replace the current web version.'
+              : 'Cueport will replace the current web version with this saved presentation.'}</p>
             {!isSaved && <p className="field-error rename-error">Save this presentation on your computer before publishing it.</p>}
             {error && <p className="field-error rename-error">{error}</p>}
             <div className="rename-dialog-actions">
               <button disabled={busy} onClick={onClose} type="button">Cancel</button>
               <button className="primary" disabled={busy || !isSaved} onClick={() => void publish()} type="button">
-                {busy ? (isDirty ? 'Saving and publishing…' : 'Publishing…') : 'Publish'}
+                {busy ? progressLabel ?? (isDirty ? 'Saving and publishing…' : 'Publishing…') : 'Publish'}
               </button>
             </div>
           </div>

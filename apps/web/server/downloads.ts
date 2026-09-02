@@ -2,22 +2,17 @@ import { stat } from 'node:fs/promises'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { ZipArchive } from 'archiver'
 import type { Pool, QueryResultRow } from 'pg'
-import { parsePresentationDocument, type PresentationDocument, type PresentationMediaMimeType } from '../../../src/shared/presentation'
+import { type PresentationDocument, type PresentationMediaMimeType } from '../../../src/shared/presentation'
 import type { AuthenticatedUser } from './database'
 import { ApiError } from './http'
-import { hashToken } from './security'
+import { requirePublishedPresentationAccess } from './presentationAccess'
 import { storedAssetPath } from './storage'
 
 interface DownloadRoutesOptions {
   app: FastifyInstance
   pool: Pool
   storageRoot: string
-  requireUser: (request: FastifyRequest) => Promise<AuthenticatedUser>
-}
-
-interface PublishedRevisionRow extends QueryResultRow {
-  revision_id: string
-  document: unknown
+  userFromRequest: (request: FastifyRequest) => Promise<AuthenticatedUser | null>
 }
 
 interface StoredAssetRow extends QueryResultRow {
@@ -72,29 +67,18 @@ export function sequenceArchiveDisposition(presentationName: string): string {
   return `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeHeaderFileName(unicodeName)}`
 }
 
-export function registerDownloadRoutes({ app, pool, storageRoot, requireUser }: DownloadRoutesOptions): void {
+export function registerDownloadRoutes({ app, pool, storageRoot, userFromRequest }: DownloadRoutesOptions): void {
   app.get('/api/share/:token/download', { config: { rateLimit: { max: 12, timeWindow: '1 minute' } } }, async (request, reply) => {
-    await requireUser(request)
     const { token } = request.params as { token: string }
-    if (token.length < 32 || token.length > 128) throw new ApiError(404, 'This presentation link is unavailable.')
+    const published = await requirePublishedPresentationAccess(pool, token, await userFromRequest(request))
 
-    const revisionResult = await pool.query<PublishedRevisionRow>(
-      `SELECT revisions.id AS revision_id, revisions.document
-       FROM cueport_presentations presentations
-       JOIN cueport_revisions revisions ON revisions.id = presentations.published_revision_id
-       WHERE presentations.share_token_hash = $1 AND revisions.status = 'published'`,
-      [hashToken(token)]
-    )
-    const published = revisionResult.rows[0]
-    if (!published) throw new ApiError(404, 'This presentation link is unavailable.')
-
-    const document = parsePresentationDocument(published.document)
+    const document = published.document
     const entries = sequenceDownloadEntries(document)
     const assetsResult = await pool.query<StoredAssetRow>(
       `SELECT asset_key, mime_type, storage_name
        FROM cueport_revision_assets
        WHERE revision_id = $1 AND uploaded_at IS NOT NULL AND asset_key = ANY($2::text[])`,
-      [published.revision_id, entries.map((entry) => entry.assetKey)]
+      [published.revisionId, entries.map((entry) => entry.assetKey)]
     )
     const assetsByKey = new Map(assetsResult.rows.map((asset) => [asset.asset_key, asset]))
     const files = await Promise.all(entries.map(async (entry) => {
@@ -102,13 +86,13 @@ export function registerDownloadRoutes({ app, pool, storageRoot, requireUser }: 
       if (!asset || asset.mime_type !== entry.mimeType) {
         throw new ApiError(404, 'One of the presentation files is unavailable.')
       }
-      const filePath = storedAssetPath(storageRoot, published.revision_id, asset.storage_name)
+      const filePath = storedAssetPath(storageRoot, published.revisionId, asset.storage_name)
       const file = await stat(filePath)
       if (!file.isFile() || file.size < 1) throw new ApiError(404, 'One of the presentation files is unavailable.')
       return { fileName: entry.fileName, filePath }
     }))
 
-    reply.header('Cache-Control', 'private, no-store')
+    reply.header('Cache-Control', published.isPublic ? 'public, no-store' : 'private, no-store')
     reply.header('Content-Disposition', sequenceArchiveDisposition(document.name))
     reply.type('application/zip')
 

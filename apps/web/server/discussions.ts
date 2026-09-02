@@ -1,21 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { Pool, PoolClient, QueryResultRow } from 'pg'
-import { parsePresentationDocument, type PresentationDocument } from '../../../src/shared/presentation'
 import { type AuthenticatedUser, withTransaction } from './database'
 import { coordinateToPpm, normalizeCommentBody, normalizeSlideId, ppmToCoordinate } from './commentValidation'
 import { ApiError, jsonBody } from './http'
-import { hashToken } from './security'
+import { requirePublishedPresentationAccess, type PublishedPresentationContext } from './presentationAccess'
 
 interface DiscussionRoutesOptions {
   app: FastifyInstance
   pool: Pool
   requireUser: (request: FastifyRequest) => Promise<AuthenticatedUser>
-}
-
-interface PublishedContext {
-  document: PresentationDocument
-  presentationId: string
 }
 
 interface DiscussionRow extends QueryResultRow {
@@ -43,21 +37,7 @@ interface DiscussionRow extends QueryResultRow {
 
 type DatabaseReader = Pick<Pool | PoolClient, 'query'>
 
-async function publishedContext(pool: Pool, token: string): Promise<PublishedContext> {
-  if (token.length < 32 || token.length > 128) throw new ApiError(404, 'This presentation link is unavailable.')
-  const result = await pool.query<{ presentation_id: string; document: unknown }>(
-    `SELECT presentations.id AS presentation_id, revisions.document
-     FROM cueport_presentations presentations
-     JOIN cueport_revisions revisions ON revisions.id = presentations.published_revision_id
-     WHERE presentations.share_token_hash = $1 AND revisions.status = 'published'`,
-    [hashToken(token)]
-  )
-  const row = result.rows[0]
-  if (!row) throw new ApiError(404, 'This presentation link is unavailable.')
-  return { presentationId: row.presentation_id, document: parsePresentationDocument(row.document) }
-}
-
-function validSlideId(context: PublishedContext, value: unknown): string {
+function validSlideId(context: PublishedPresentationContext, value: unknown): string {
   let slideId: string
   try {
     slideId = normalizeSlideId(value)
@@ -182,14 +162,14 @@ export function registerDiscussionRoutes({ app, pool, requireUser }: DiscussionR
   app.get('/api/share/:token/discussions', async (request) => {
     const user = await requireUser(request)
     const { token } = request.params as { token: string }
-    const context = await publishedContext(pool, token)
+    const context = await requirePublishedPresentationAccess(pool, token, user)
     return { discussions: await listDiscussions(pool, context.presentationId, user) }
   })
 
   app.post('/api/share/:token/discussions', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (request) => {
     const user = await requireUser(request)
     const { token } = request.params as { token: string }
-    const context = await publishedContext(pool, token)
+    const context = await requirePublishedPresentationAccess(pool, token, user)
     const body = jsonBody(request.body)
     const slideId = validSlideId(context, body.slideId)
     const comment = validBody(body.body)
@@ -242,7 +222,7 @@ export function registerDiscussionRoutes({ app, pool, requireUser }: DiscussionR
   app.patch('/api/share/:token/discussions/:threadId', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (request) => {
     const user = await requireUser(request)
     const { token, threadId } = request.params as { token: string; threadId: string }
-    const context = await publishedContext(pool, token)
+    const context = await requirePublishedPresentationAccess(pool, token, user)
     const body = jsonBody(request.body)
     const { x, y } = validCoordinates(body.x, body.y)
     const discussions = await withTransaction(pool, async (client) => {
@@ -273,7 +253,7 @@ export function registerDiscussionRoutes({ app, pool, requireUser }: DiscussionR
   app.post('/api/share/:token/discussions/:threadId/comments', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request) => {
     const user = await requireUser(request)
     const { token, threadId } = request.params as { token: string; threadId: string }
-    const context = await publishedContext(pool, token)
+    const context = await requirePublishedPresentationAccess(pool, token, user)
     const body = jsonBody(request.body)
     const comment = validBody(body.body)
     const commentId = requestId(body.requestId)
@@ -308,7 +288,7 @@ export function registerDiscussionRoutes({ app, pool, requireUser }: DiscussionR
   app.patch('/api/share/:token/discussions/:threadId/comments/:commentId', async (request) => {
     const user = await requireUser(request)
     const { token, threadId, commentId } = request.params as { token: string; threadId: string; commentId: string }
-    const context = await publishedContext(pool, token)
+    const context = await requirePublishedPresentationAccess(pool, token, user)
     const body = validBody(jsonBody(request.body).body)
     const discussions = await withTransaction(pool, async (client) => {
       const result = await client.query<{ author_id: string | null }>(
@@ -335,7 +315,7 @@ export function registerDiscussionRoutes({ app, pool, requireUser }: DiscussionR
   app.delete('/api/share/:token/discussions/:threadId/comments/:commentId', async (request) => {
     const user = await requireUser(request)
     const { token, threadId, commentId } = request.params as { token: string; threadId: string; commentId: string }
-    const context = await publishedContext(pool, token)
+    const context = await requirePublishedPresentationAccess(pool, token, user)
     const client = await pool.connect()
     let threadDeleted = false
     let discussions: unknown[]
@@ -381,7 +361,7 @@ export function registerDiscussionRoutes({ app, pool, requireUser }: DiscussionR
     const user = await requireUser(request)
     if (user.role !== 'owner') throw new ApiError(403, 'Only the Cueport owner can delete an entire discussion.')
     const { token, threadId } = request.params as { token: string; threadId: string }
-    const context = await publishedContext(pool, token)
+    const context = await requirePublishedPresentationAccess(pool, token, user)
     const discussions = await withTransaction(pool, async (client) => {
       const result = await client.query(
         'DELETE FROM cueport_comment_threads WHERE id = $1 AND presentation_id = $2',
