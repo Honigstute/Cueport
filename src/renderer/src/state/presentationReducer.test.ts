@@ -27,6 +27,27 @@ describe('presentationReducer', () => {
     expect(state.activeId).toBe('c')
   })
 
+  it('applies rapid navigation to the latest reducer state and clamps the result', () => {
+    let state = createInitialState()
+    state = presentationReducer(state, { type: 'ADD_SLIDES', slides: [slide('a'), slide('b'), slide('c'), slide('d')] })
+    state = presentationReducer(state, { type: 'SELECT_SLIDE', id: 'a' })
+
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: 1 })
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: 1 })
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: 1 })
+    expect(state.activeId).toBe('d')
+
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: -1 })
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: -1 })
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: -1 })
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: -1 })
+    expect(state.activeId).toBe('a')
+
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: -1 })
+    state = presentationReducer(state, { type: 'NAVIGATE_SLIDE', offset: 1 })
+    expect(state.activeId).toBe('b')
+  })
+
   it('renames one sequence frame without touching its imported asset data', () => {
     let state = createInitialState()
     state = presentationReducer(state, { type: 'ADD_SLIDES', slides: [slide('a'), slide('b')] })

@@ -24,6 +24,7 @@ export type PresentationAction =
   | { type: 'ADD_REFERENCES'; references: ReferenceAsset[] }
   | { type: 'START_PRESENTATION'; slides: SlideAsset[] }
   | { type: 'SELECT_SLIDE'; id: string }
+  | { type: 'NAVIGATE_SLIDE'; offset: -1 | 1 }
   | { type: 'REMOVE_SLIDE'; id: string }
   | { type: 'RENAME_SLIDE'; id: string; name: string }
   | { type: 'MOVE_SLIDE'; fromIndex: number; toIndex: number }
@@ -141,6 +142,13 @@ export function presentationReducer(state: PresentationState, action: Presentati
         : state
     case 'SELECT_SLIDE':
       return state.slides.some((slide) => slide.id === action.id) ? { ...state, activeId: action.id } : state
+    case 'NAVIGATE_SLIDE': {
+      if (state.slides.length === 0) return state
+      const currentIndex = Math.max(0, state.slides.findIndex((slide) => slide.id === state.activeId))
+      const nextIndex = Math.max(0, Math.min(state.slides.length - 1, currentIndex + action.offset))
+      const activeId = state.slides[nextIndex]?.id
+      return activeId && activeId !== state.activeId ? { ...state, activeId } : state
+    }
     case 'REMOVE_SLIDE': {
       const removedIndex = state.slides.findIndex((slide) => slide.id === action.id)
       if (removedIndex < 0) return state

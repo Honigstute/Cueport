@@ -312,7 +312,8 @@ function Dashboard({ onLogout, onProfileChange, profile }: {
   )
 }
 
-function SharedViewer({ token, onAuthenticationRequired }: {
+function SharedViewer({ initialNavigationDirections, token, onAuthenticationRequired }: {
+  initialNavigationDirections: ReadonlyArray<-1 | 1>
   token: string
   onAuthenticationRequired: () => void
 }): React.JSX.Element {
@@ -339,6 +340,8 @@ function SharedViewer({ token, onAuthenticationRequired }: {
   const posterKeysRef = useRef(new Map<string, string>())
   const localUrlsRef = useRef(new Set<string>())
   const lastNonPhoneFrameRef = useRef<Exclude<CanvasFrame, 'phone'>>('none')
+  const navigationReadyRef = useRef(false)
+  const pendingNavigationDirectionsRef = useRef<Array<-1 | 1>>([...initialNavigationDirections])
 
   const releaseLocalUrls = useCallback((): void => {
     for (const url of localUrlsRef.current) URL.revokeObjectURL(url)
@@ -384,6 +387,12 @@ function SharedViewer({ token, onAuthenticationRequired }: {
         url: response.assets[response.document.brand.assetKey] || ''
       } : null
     })
+    const pendingNavigationDirections = pendingNavigationDirectionsRef.current
+    pendingNavigationDirectionsRef.current = []
+    for (const direction of pendingNavigationDirections) {
+      dispatch({ type: 'NAVIGATE_SLIDE', offset: direction })
+    }
+    navigationReadyRef.current = true
     lastNonPhoneFrameRef.current = response.document.settings.canvasFrame === 'phone'
       ? 'none'
       : response.document.settings.canvasFrame
@@ -395,6 +404,8 @@ function SharedViewer({ token, onAuthenticationRequired }: {
 
   useEffect(() => {
     let active = true
+    navigationReadyRef.current = false
+    pendingNavigationDirectionsRef.current = [...initialNavigationDirections]
     setShared(null)
     setError(null)
     setZoom(1)
@@ -417,7 +428,7 @@ function SharedViewer({ token, onAuthenticationRequired }: {
         setError(cause instanceof Error ? cause.message : 'This presentation is unavailable.')
       })
     return () => { active = false }
-  }, [hydrate, onAuthenticationRequired, token])
+  }, [hydrate, initialNavigationDirections, onAuthenticationRequired, token])
 
   useEffect(() => () => releaseLocalUrls(), [releaseLocalUrls])
 
@@ -442,10 +453,12 @@ function SharedViewer({ token, onAuthenticationRequired }: {
   }, [workspaceMode])
 
   const navigate = useCallback((direction: -1 | 1): void => {
-    const next = Math.max(0, Math.min(state.slides.length - 1, activeIndex + direction))
-    const nextSlide = state.slides[next]
-    if (nextSlide) dispatch({ type: 'SELECT_SLIDE', id: nextSlide.id })
-  }, [activeIndex, state.slides])
+    if (!navigationReadyRef.current) {
+      pendingNavigationDirectionsRef.current.push(direction)
+      return
+    }
+    dispatch({ type: 'NAVIGATE_SLIDE', offset: direction })
+  }, [])
 
   const zoomBy = useCallback((direction: -1 | 1): void => {
     update({ type: 'SET_MODE', mode: 'canvas' }, true)
@@ -840,6 +853,7 @@ export default function App(): React.JSX.Element {
   const currentPrivatePresentationPath = normalizePrivatePresentationReturnPath(location.pathname)
   const [session, setSession] = useState<SessionResponse | null>(null)
   const [shareLoginRequired, setShareLoginRequired] = useState(false)
+  const pendingInitialNavigationDirectionsRef = useRef<Array<-1 | 1>>([])
   const query = new URLSearchParams(location.search)
   const setupToken = query.get('setup') || undefined
   const activationToken = query.get('activate') || undefined
@@ -847,6 +861,23 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     api<SessionResponse>('/api/session').then(setSession).catch(() => setSession({ authenticated: false }))
   }, [shareMatch?.[1]])
+
+  useEffect(() => {
+    pendingInitialNavigationDirectionsRef.current = []
+  }, [shareMatch?.[1]])
+
+  useEffect(() => {
+    if (session || !shareMatch) return
+    const queueInitialNavigation = (event: KeyboardEvent): void => {
+      if (event.isComposing || isTextEntry(event.target)) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+      event.preventDefault()
+      pendingInitialNavigationDirectionsRef.current.push(event.key === 'ArrowLeft' ? -1 : 1)
+    }
+    window.addEventListener('keydown', queueInitialNavigation)
+    return () => window.removeEventListener('keydown', queueInitialNavigation)
+  }, [session, shareMatch?.[1]])
 
   const requireShareAuthentication = useCallback((): void => {
     if (currentPrivatePresentationPath) {
@@ -876,6 +907,7 @@ export default function App(): React.JSX.Element {
   if (shareMatch && (!shareLoginRequired || session.authenticated)) {
     return (
       <SharedViewer
+        initialNavigationDirections={pendingInitialNavigationDirectionsRef.current}
         onAuthenticationRequired={requireShareAuthentication}
         token={decodeURIComponent(shareMatch[1])}
       />

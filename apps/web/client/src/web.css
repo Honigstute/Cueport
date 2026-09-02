@@ -80,6 +80,12 @@
   background: var(--control-selected);
 }
 
+/* Active already is the keyboard selection indicator. Suppress the generic
+   outer focus ring only when both states refer to this same thumbnail. */
+.web-viewer-slide-thumbnail[data-active="true"]:focus-visible {
+  outline: none;
+}
+
 .web-viewer-slide-thumbnail img,
 .web-viewer-slide-thumbnail-fallback {
   background: var(--ui-input);

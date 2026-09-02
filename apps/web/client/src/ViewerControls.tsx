@@ -174,10 +174,14 @@ export function ViewerControls({
     const strip = slideStripRef.current
     const active = strip?.children.item(activeSlideIndex)
     if (!(strip && active instanceof HTMLElement)) return
+    const keepKeyboardFocusWithActiveSlide = strip.contains(document.activeElement)
     if (active.offsetLeft < strip.scrollLeft) {
       strip.scrollLeft = active.offsetLeft
     } else if (active.offsetLeft + active.offsetWidth > strip.scrollLeft + strip.clientWidth) {
       strip.scrollLeft = active.offsetLeft + active.offsetWidth - strip.clientWidth
+    }
+    if (keepKeyboardFocusWithActiveSlide && active !== document.activeElement) {
+      active.focus({ preventScroll: true })
     }
   }, [activeSlideIndex])
 
